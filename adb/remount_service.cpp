@@ -16,6 +16,8 @@
 
 #define TRACE_TAG ADB
 
+#ifndef ADB_NOMMU
+
 #include "sysdeps.h"
 
 #include <errno.h>
@@ -163,4 +165,6 @@ void remount_service(int fd, void* cookie)
     WriteFdExactly(fd, "remount failed, not implemented\n");
     adb_close(fd);
 }
-#endif
+#endif /* !ADB_NON_ANDROID */
+
+#endif /* !ADB_NOMMU */

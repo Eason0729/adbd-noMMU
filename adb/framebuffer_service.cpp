@@ -14,10 +14,11 @@
  * limitations under the License.
  */
 
+#ifndef ADB_NOMMU
+
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/fb.h>
-#include <spawn.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -67,30 +68,6 @@ void framebuffer_service(int fd, void *cookie)
 
     if (pipe2(fds, O_CLOEXEC) < 0) goto pipefail;
 
-#if defined(ADB_NOMMU)
-    {
-        // On noMMU we cannot fork(); use posix_spawn with file-actions to
-        // wire screencap's stdout to fds[1] and close both pipe ends in the
-        // child.
-        posix_spawn_file_actions_t actions;
-        posix_spawnattr_t attrs;
-        if (posix_spawn_file_actions_init(&actions) != 0) goto done;
-        posix_spawnattr_init(&attrs);
-        posix_spawn_file_actions_adddup2(&actions, fds[1], STDOUT_FILENO);
-        posix_spawn_file_actions_addclose(&actions, fds[0]);
-        posix_spawn_file_actions_addclose(&actions, fds[1]);
-        const char* command = "screencap";
-        char* const argv[] = {const_cast<char*>(command), nullptr};
-        extern char** environ;
-        int spawn_err = posix_spawn(&pid, command, &actions, &attrs, argv, environ);
-        posix_spawn_file_actions_destroy(&actions);
-        posix_spawnattr_destroy(&attrs);
-        if (spawn_err != 0) {
-            pid = -1;
-            goto done;
-        }
-    }
-#else
     pid = fork();
     if (pid < 0) goto done;
 
@@ -103,7 +80,6 @@ void framebuffer_service(int fd, void *cookie)
         execvp(command, (char**)args);
         exit(1);
     }
-#endif
 
     adb_close(fds[1]);
     fd_screencap = fds[0];
@@ -209,3 +185,5 @@ done:
 pipefail:
     adb_close(fd);
 }
+
+#endif /* !ADB_NOMMU */

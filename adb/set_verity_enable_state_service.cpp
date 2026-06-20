@@ -16,6 +16,8 @@
 
 #define TRACE_TAG ADB
 
+#ifndef ADB_NOMMU
+
 #include "sysdeps.h"
 
 #include <fcntl.h>
@@ -148,4 +150,6 @@ void set_verity_enabled_state_service(int fd, void* cookie)
 {
     adb_close(fd);
 }
-#endif
+#endif /* !ADB_NON_ANDROID */
+
+#endif /* !ADB_NOMMU */

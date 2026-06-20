@@ -318,10 +318,16 @@ int service_to_fd(const char* name, const atransport* transport) {
     } else if(!strncmp("dev:", name, 4)) {
         ret = unix_open(name + 4, O_RDWR | O_CLOEXEC);
     } else if(!strncmp(name, "framebuffer:", 12)) {
+#if !defined(ADB_NOMMU)
         ret = create_service_thread(framebuffer_service, 0);
-#ifndef ADB_NON_ANDROID
+#else
+        ret = -1;
+#endif
     } else if (!strncmp(name, "jdwp:", 5)) {
+#if !defined(ADB_NON_ANDROID)
         ret = create_jdwp_connection_fd(atoi(name+5));
+#else
+        ret = -1;
 #endif
     } else if(!strncmp(name, "shell", 5)) {
         ret = ShellService(name + 5, transport);
@@ -330,7 +336,11 @@ int service_to_fd(const char* name, const atransport* transport) {
     } else if(!strncmp(name, "sync:", 5)) {
         ret = create_service_thread(file_sync_service, NULL);
     } else if(!strncmp(name, "remount:", 8)) {
+#if !defined(ADB_NOMMU)
         ret = create_service_thread(remount_service, NULL);
+#else
+        ret = -1;
+#endif
     } else if(!strncmp(name, "reboot:", 7)) {
         void* arg = strdup(name + 7);
         if (arg == NULL) return -1;
@@ -357,9 +367,17 @@ int service_to_fd(const char* name, const atransport* transport) {
     } else if (!strncmp(name, "reverse:", 8)) {
         ret = reverse_service(name + 8);
     } else if(!strncmp(name, "disable-verity:", 15)) {
+#if !defined(ADB_NOMMU)
         ret = create_service_thread(set_verity_enabled_state_service, (void*)0);
+#else
+        ret = -1;
+#endif
     } else if(!strncmp(name, "enable-verity:", 15)) {
+#if !defined(ADB_NOMMU)
         ret = create_service_thread(set_verity_enabled_state_service, (void*)1);
+#else
+        ret = -1;
+#endif
     } else if (!strcmp(name, "reconnect")) {
         ret = create_service_thread(reconnect_service, const_cast<atransport*>(transport));
 #endif
