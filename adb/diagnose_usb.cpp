@@ -20,6 +20,7 @@
 #include <unistd.h>
 
 #include <string>
+#include <vector>
 
 #include <android-base/stringprintf.h>
 
@@ -46,7 +47,19 @@ static const char* GetUdevProblem() {
 
     // getgroups(2) indicates that the group_member() may not check the egid so we check it
     // additionally just to be sure.
-    if (group_member(plugdev_group->gr_gid) || getegid() == plugdev_group->gr_gid) {
+    gid_t gid = plugdev_group->gr_gid;
+    bool in_group = (getegid() == gid);
+    if (!in_group) {
+        int n = getgroups(0, nullptr);
+        if (n > 0) {
+            std::vector<gid_t> groups(n);
+            getgroups(n, groups.data());
+            for (int i = 0; i < n; ++i) {
+                if (groups[i] == gid) { in_group = true; break; }
+            }
+        }
+    }
+    if (in_group) {
         // The user is in plugdev so the problem is likely with the udev rules.
         return "verify udev rules";
     }

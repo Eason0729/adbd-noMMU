@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+#if !defined(ADB_NOMMU)
+
 #include <crypto_utils/android_pubkey.h>
 
 #include <assert.h>
@@ -67,6 +69,7 @@ bool android_pubkey_decode(const uint8_t* key_buffer, size_t size, RSA** key) {
   bool ret = false;
   uint8_t modulus_buffer[ANDROID_PUBKEY_MODULUS_SIZE];
   RSA* new_key = RSA_new();
+  BIGNUM *n = NULL, *e = NULL;
   if (!new_key) {
     goto cleanup;
   }
@@ -82,16 +85,22 @@ bool android_pubkey_decode(const uint8_t* key_buffer, size_t size, RSA** key) {
   // Convert the modulus to big-endian byte order as expected by BN_bin2bn.
   memcpy(modulus_buffer, key_struct->modulus, sizeof(modulus_buffer));
   reverse_bytes(modulus_buffer, sizeof(modulus_buffer));
-  new_key->n = BN_bin2bn(modulus_buffer, sizeof(modulus_buffer), NULL);
-  if (!new_key->n) {
+  n = BN_bin2bn(modulus_buffer, sizeof(modulus_buffer), NULL);
+  if (!n) {
     goto cleanup;
   }
 
   // Read the exponent.
-  new_key->e = BN_new();
-  if (!new_key->e || !BN_set_word(new_key->e, key_struct->exponent)) {
+  e = BN_new();
+  if (!e || !BN_set_word(e, key_struct->exponent)) {
     goto cleanup;
   }
+
+  if (!RSA_set0_key(new_key, n, e, NULL)) {
+    goto cleanup;
+  }
+  n = NULL;
+  e = NULL;
 
   // Note that we don't extract the montgomery parameters n0inv and rr from
   // the RSAPublicKey structure. They assume a word size of 32 bits, but
@@ -102,84 +111,28 @@ bool android_pubkey_decode(const uint8_t* key_buffer, size_t size, RSA** key) {
   // pre-computed montgomery parameters.
 
   *key = new_key;
+  new_key = NULL;
   ret = true;
 
 cleanup:
-  if (!ret && new_key) {
+  BN_free(e);
+  BN_free(n);
+  if (new_key) {
     RSA_free(new_key);
   }
   return ret;
 }
 
 #ifdef ADB_NON_ANDROID
-/* From https://android.googlesource.com/platform/external/chromium_org/third_party/boringssl/src/+/6887edb^!/ */
-
-/* constant_time_select_ulong returns |x| if |v| is 1 and |y| if |v| is 0. Its
- * behavior is undefined if |v| takes any other value. */
-static BN_ULONG constant_time_select_ulong(int v, BN_ULONG x, BN_ULONG y) {
-  BN_ULONG mask = v;
-  mask--;
-
-  return (~mask & x) | (mask & y);
-}
-
-/* constant_time_le_size_t returns 1 if |x| <= |y| and 0 otherwise. |x| and |y|
- * must not have their MSBs set. */
-static int constant_time_le_size_t(size_t x, size_t y) {
-  return ((x - y - 1) >> (sizeof(size_t) * 8 - 1)) & 1;
-}
-
-/* read_word_padded returns the |i|'th word of |in|, if it is not out of
- * bounds. Otherwise, it returns 0. It does so without branches on the size of
- * |in|, however it necessarily does not have the same memory access pattern. If
- * the access would be out of bounds, it reads the last word of |in|. |in| must
- * not be zero. */
-static BN_ULONG read_word_padded(const BIGNUM *in, size_t i) {
-  /* Read |in->d[i]| if valid. Otherwise, read the last word. */
-  BN_ULONG l = in->d[constant_time_select_ulong(
-      constant_time_le_size_t(in->dmax, i), in->dmax - 1, i)];
-
-  /* Clamp to zero if above |d->top|. */
-  return constant_time_select_ulong(constant_time_le_size_t(in->top, i), 0, l);
-}
-
+/*
+ * OpenSSL 3.x provides BN_bn2binpad() natively (equivalent to BoringSSL's
+ * BN_bn2bin_padded).  The old BoringSSL-derived implementation accessed
+ * BIGNUM internal fields (->d, ->dmax, ->top) which are opaque in OpenSSL 3.
+ * Use the native function instead.
+ */
 int BN_bn2bin_padded(uint8_t *out, size_t len, const BIGNUM *in) {
-  size_t i;
-  BN_ULONG l;
-
-  /* Special case for |in| = 0. Just branch as the probability is negligible. */
-  if (BN_is_zero(in)) {
-    memset(out, 0, len);
-    return 1;
-  }
-
-  /* Check if the integer is too big. This case can exit early in non-constant
-   * time. */
-  if (in->top > (len + (BN_BYTES - 1)) / BN_BYTES) {
-    return 0;
-  }
-  if ((len % BN_BYTES) != 0) {
-    l = read_word_padded(in, len / BN_BYTES);
-    if (l >> (8 * (len % BN_BYTES)) != 0) {
-      return 0;
-    }
-  }
-
-  /* Write the bytes out one by one. Serialization is done without branching on
-   * the bits of |in| or on |in->top|, but if the routine would otherwise read
-   * out of bounds, the memory access pattern can't be fixed. However, for an
-   * RSA key of size a multiple of the word size, the probability of BN_BYTES
-   * leading zero octets is low.
-   *
-   * See Falko Stenzke, "Manger's Attack revisited", ICICS 2010. */
-  i = len;
-  while (i--) {
-    l = read_word_padded(in, i / BN_BYTES);
-    *(out++) = (uint8_t)(l >> (8 * (i % BN_BYTES))) & 0xff;
-  }
-  return 1;
+  return BN_bn2binpad(in, out, len);
 }
-
 #endif
 
 static bool android_pubkey_encode_bignum(const BIGNUM* num, uint8_t* buffer) {
@@ -198,6 +151,9 @@ bool android_pubkey_encode(const RSA* key, uint8_t* key_buffer, size_t size) {
   BIGNUM* r32 = BN_new();
   BIGNUM* n0inv = BN_new();
   BIGNUM* rr = BN_new();
+  const BIGNUM *n = NULL, *e = NULL;
+
+  RSA_get0_key(key, &n, &e, NULL);
 
   if (sizeof(RSAPublicKey) > size ||
       RSA_size(key) != ANDROID_PUBKEY_MODULUS_SIZE) {
@@ -209,26 +165,26 @@ bool android_pubkey_encode(const RSA* key, uint8_t* key_buffer, size_t size) {
 
   // Compute and store n0inv = -1 / N[0] mod 2^32.
   if (!ctx || !r32 || !n0inv || !BN_set_bit(r32, 32) ||
-      !BN_mod(n0inv, key->n, r32, ctx) ||
+      !BN_mod(n0inv, n, r32, ctx) ||
       !BN_mod_inverse(n0inv, n0inv, r32, ctx) || !BN_sub(n0inv, r32, n0inv)) {
     goto cleanup;
   }
   key_struct->n0inv = (uint32_t)BN_get_word(n0inv);
 
   // Store the modulus.
-  if (!android_pubkey_encode_bignum(key->n, key_struct->modulus)) {
+  if (!android_pubkey_encode_bignum(n, key_struct->modulus)) {
     goto cleanup;
   }
 
   // Compute and store rr = (2^(rsa_size)) ^ 2 mod N.
   if (!ctx || !rr || !BN_set_bit(rr, ANDROID_PUBKEY_MODULUS_SIZE * 8) ||
-      !BN_mod_sqr(rr, rr, key->n, ctx) ||
+      !BN_mod_sqr(rr, rr, n, ctx) ||
       !android_pubkey_encode_bignum(rr, key_struct->rr)) {
     goto cleanup;
   }
 
   // Store the exponent.
-  key_struct->exponent = (uint32_t)BN_get_word(key->e);
+  key_struct->exponent = (uint32_t)BN_get_word(e);
 
   ret = true;
 
@@ -239,3 +195,5 @@ cleanup:
   BN_CTX_free(ctx);
   return ret;
 }
+
+#endif /* !defined(ADB_NOMMU) */

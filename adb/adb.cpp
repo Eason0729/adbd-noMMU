@@ -48,7 +48,9 @@
 
 #if !ADB_HOST
 #include <cutils/properties.h>
+#if !defined(ADB_NOMMU)
 #include <sys/capability.h>
+#endif
 #include <sys/mount.h>
 #endif
 
@@ -851,6 +853,12 @@ int launch_server(int server_port)
         return -1;
     }
 #else /* !defined(_WIN32) */
+#if defined(ADB_NOMMU)
+    // On noMMU Linux we cannot fork() to start a detached adb server. This
+    // host-only code path is never reached by the adbd daemon, so just refuse.
+    fprintf(stderr, "launch_server not supported on noMMU\n");
+    return -1;
+#else
     char    path[PATH_MAX];
     int     fd[2];
 
@@ -897,6 +905,7 @@ int launch_server(int server_port)
             return -1;
         }
     }
+#endif /* ADB_NOMMU */
 #endif /* !defined(_WIN32) */
     return 0;
 }

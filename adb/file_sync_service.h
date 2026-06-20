@@ -71,6 +71,10 @@ bool do_sync_pull(const std::vector<const char*>& srcs, const char* dst,
 
 bool do_sync_sync(const std::string& lpath, const std::string& rpath, bool list_only);
 
+#if defined(ADB_NOMMU)
+#define SYNC_DATA_MAX (4*1024)
+#else
 #define SYNC_DATA_MAX (64*1024)
+#endif
 
 #endif

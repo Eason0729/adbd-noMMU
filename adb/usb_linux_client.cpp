@@ -43,11 +43,19 @@
 #define MAX_PACKET_SIZE_SS	1024
 
 // Writes larger than 16k fail on some devices (seed with 3.10.49-g209ea2f in particular).
+#if defined(ADB_NOMMU)
+#define USB_FFS_MAX_WRITE 4096
+#else
 #define USB_FFS_MAX_WRITE 16384
+#endif
 
 // The kernel allocates a contiguous buffer for reads, which can fail for large ones due to
 // fragmentation. 16k chosen arbitrarily to match the write limit.
+#if defined(ADB_NOMMU)
+#define USB_FFS_MAX_READ 4096
+#else
 #define USB_FFS_MAX_READ 16384
+#endif
 
 #define cpu_to_le16(x)  htole16(x)
 #define cpu_to_le32(x)  htole32(x)

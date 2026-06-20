@@ -30,7 +30,11 @@
 
 constexpr size_t MAX_PAYLOAD_V1 = 4 * 1024;
 constexpr size_t MAX_PAYLOAD_V2 = 256 * 1024;
+#if defined(ADB_NOMMU)
+constexpr size_t MAX_PAYLOAD = MAX_PAYLOAD_V1;
+#else
 constexpr size_t MAX_PAYLOAD = MAX_PAYLOAD_V2;
+#endif
 
 #define A_SYNC 0x434e5953
 #define A_CNXN 0x4e584e43

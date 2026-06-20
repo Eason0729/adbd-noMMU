@@ -23,11 +23,41 @@
 #include <stdio.h>
 #include <string.h>
 
+#if !defined(ADB_NOMMU)
 #include <openssl/obj_mac.h>
 #include <openssl/rsa.h>
 #include <openssl/sha.h>
-
 #include <crypto_utils/android_pubkey.h>
+#endif
+
+#if defined(ADB_NOMMU) && !defined(ADB_NOMMU_NO_CRYPTO)
+/* Simple base64 decode replacement for __b64_pton (BSD libc) on uClibc. */
+static int adb_b64_pton(const char *in, uint8_t *out, int outlen) {
+    static int8_t tbl[256];
+    static int tbl_init;
+    if (!tbl_init) {
+        memset(tbl, -1, sizeof(tbl));
+        const char *chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        for (int i = 0; i < 64; i++) tbl[(unsigned char)chars[i]] = i;
+        tbl_init = 1;
+    }
+    int val = 0, bits = 0, idx = 0;
+    for (; *in; in++) {
+        int8_t d = tbl[(unsigned char)*in];
+        if (d == -1) continue;
+        val = (val << 6) | d;
+        bits += 6;
+        if (bits >= 8) {
+            bits -= 8;
+            if (idx >= outlen) return -1;
+            out[idx++] = (val >> bits) & 0xFF;
+        }
+    }
+    return idx;
+}
+#else
+#define adb_b64_pton(in, out, len) __b64_pton(in, out, len)
+#endif
 
 #include "cutils/list.h"
 #include "cutils/sockets.h"
@@ -35,6 +65,17 @@
 #include "adb.h"
 #include "fdevent.h"
 #include "transport.h"
+
+static fdevent listener_fde;
+static fdevent framework_fde;
+static int framework_fd = -1;
+
+static void usb_disconnected(void* unused, atransport* t);
+static struct adisconnect usb_disconnect = { usb_disconnected, nullptr};
+static atransport* usb_transport;
+static bool needs_retry = false;
+
+#if !defined(ADB_NOMMU)
 
 struct adb_public_key {
     struct listnode node;
@@ -46,15 +87,6 @@ static const char *key_paths[] = {
     "/data/misc/adb/adb_keys",
     NULL
 };
-
-static fdevent listener_fde;
-static fdevent framework_fde;
-static int framework_fd = -1;
-
-static void usb_disconnected(void* unused, atransport* t);
-static struct adisconnect usb_disconnect = { usb_disconnected, nullptr};
-static atransport* usb_transport;
-static bool needs_retry = false;
 
 static void read_keys(const char *file, struct listnode *list)
 {
@@ -81,10 +113,8 @@ static void read_keys(const char *file, struct listnode *list)
         if (sep)
             *sep = '\0';
 
-        // b64_pton requires one additional byte in the target buffer for
-        // decoding to succeed. See http://b/28035006 for details.
         uint8_t keybuf[ANDROID_PUBKEY_ENCODED_SIZE + 1];
-        ret = __b64_pton(buf, keybuf, sizeof(keybuf));
+        ret = adb_b64_pton(buf, keybuf, sizeof(keybuf));
         if (ret != ANDROID_PUBKEY_ENCODED_SIZE) {
             D("%s: Invalid base64 data ret=%d", file, ret);
             free(key);
@@ -132,21 +162,6 @@ static void load_keys(struct listnode *list)
     }
 }
 
-int adb_auth_generate_token(void *token, size_t token_size)
-{
-    FILE *f;
-    int ret;
-
-    f = fopen("/dev/urandom", "re");
-    if (!f)
-        return 0;
-
-    ret = fread(token, token_size, 1, f);
-
-    fclose(f);
-    return ret * token_size;
-}
-
 int adb_auth_verify(uint8_t* token, size_t token_size, uint8_t* sig, int siglen)
 {
     struct listnode *item;
@@ -165,6 +180,31 @@ int adb_auth_verify(uint8_t* token, size_t token_size, uint8_t* sig, int siglen)
     free_keys(&key_list);
 
     return ret;
+}
+
+#else // ADB_NOMMU — no crypto, deny all verification
+
+int adb_auth_verify(uint8_t* token, size_t token_size, uint8_t* sig, int siglen)
+{
+    (void)token; (void)token_size; (void)sig; (void)siglen;
+    return 0;
+}
+
+#endif
+
+int adb_auth_generate_token(void *token, size_t token_size)
+{
+    FILE *f;
+    int ret;
+
+    f = fopen("/dev/urandom", "re");
+    if (!f)
+        return 0;
+
+    ret = fread(token, token_size, 1, f);
+
+    fclose(f);
+    return ret * token_size;
 }
 
 static void usb_disconnected(void* unused, atransport* t) {

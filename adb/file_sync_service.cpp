@@ -26,8 +26,10 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#ifndef ADB_NON_ANDROID
 #include <sys/xattr.h>
 #include <linux/xattr.h>
+#endif
 #include <unistd.h>
 #include <utime.h>
 
@@ -53,6 +55,7 @@ static bool should_use_fs_config(const std::string& path) {
 }
 #endif
 
+#if !ADB_NON_ANDROID
 static bool update_capabilities(const char* path, uint64_t capabilities) {
     if (capabilities == 0) {
         // Ensure we clean up in case the capabilities weren't 0 in the past.
@@ -68,6 +71,7 @@ static bool update_capabilities(const char* path, uint64_t capabilities) {
     cap_data.data[1].inheritable = 0;
     return setxattr(path, XATTR_NAME_CAPS, &cap_data, sizeof(cap_data), 0) != -1;
 }
+#endif
 
 static bool secure_mkdirs(const std::string& path) {
     uid_t uid = -1;
@@ -100,7 +104,9 @@ static bool secure_mkdirs(const std::string& path) {
             selinux_android_restorecon(partial_path.c_str(), 0);
 #endif
 
+#if !ADB_NON_ANDROID
             if (!update_capabilities(partial_path.c_str(), capabilities)) return false;
+#endif
         }
     }
     return true;
@@ -209,10 +215,12 @@ static bool handle_send_file(int s, const char* path, uid_t uid, gid_t gid, uint
         // by all filesystems, so we don't check for success. b/12441485
         fchmod(fd, mode);
 
+#if !ADB_NON_ANDROID
         if (!update_capabilities(path, capabilities)) {
             SendSyncFailErrno(s, "update_capabilities failed");
             goto fail;
         }
+#endif
     }
 
     while (true) {

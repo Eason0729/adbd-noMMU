@@ -20,7 +20,7 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#if ADB_NON_ANDROID
+#if ADB_NON_ANDROID && !defined(ADB_NOMMU)
 #include <uchar.h>
 #endif
 
@@ -29,6 +29,10 @@ extern "C" {
 #endif
 
 #if __STDC_VERSION__ < 201112L && __cplusplus < 201103L
+  typedef uint16_t char16_t;
+#endif
+#if defined(ADB_NOMMU) && !defined(__cplusplus)
+  /* uClibc-ng's uchar.h is broken; ensure char16_t is available in C. */
   typedef uint16_t char16_t;
 #endif
   // otherwise char16_t is a keyword with the right semantics

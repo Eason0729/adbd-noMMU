@@ -84,6 +84,7 @@
 #include <errno.h>
 #include <pty.h>
 #include <pwd.h>
+#include <spawn.h>
 #include <sys/select.h>
 #include <termios.h>
 
@@ -105,11 +106,25 @@
 
 namespace {
 
+// On noMMU Linux we cannot use fork()/forkpty() because there is no MMU to
+// copy-on-write the address space. Instead we use posix_spawn(), which on
+// uClibc/musl is implemented over vfork() and handles the FD-table hand-off
+// atomically. All child-side setup (dup2 of std fds, closing parent-side FDs)
+// must be expressed via posix_spawn_file_actions_t instead of being done in
+// the child process body, since under vfork the child shares the parent's
+// memory and FD table until execve().
+#if defined(ADB_NOMMU)
+#define ADB_USE_POSIX_SPAWN 1
+#endif
+
 void init_subproc_child()
 {
     setsid();
 
-    // Set OOM score adjustment to prevent killing
+    // Set OOM score adjustment to prevent killing. Skipped on noMMU since
+    // the child runs in the parent's address space until exec; the daemon
+    // itself should not have its OOM score lowered here.
+#if !defined(ADB_NOMMU)
     int fd = adb_open("/proc/self/oom_score_adj", O_WRONLY | O_CLOEXEC);
     if (fd >= 0) {
         adb_write(fd, "0", 1);
@@ -117,6 +132,7 @@ void init_subproc_child()
     } else {
        D("adb: unable to update oom_score_adj");
     }
+#endif
 }
 
 // Reads from |fd| until close or failure.
@@ -241,12 +257,15 @@ bool Subprocess::ForkAndExec(std::string* error) {
 
     // Create a socketpair for the fork() child to report any errors back to the parent. Since we
     // use threads, logging directly from the child might deadlock due to locks held in another
-    // thread during the fork.
+    // thread during the fork. On noMMU we use posix_spawn, which reports exec failures via its
+    // return value, so this channel is not needed.
+#if !defined(ADB_NOMMU)
     if (!CreateSocketpair(&parent_error_sfd, &child_error_sfd)) {
         *error = android::base::StringPrintf(
             "failed to create pipe for subprocess error reporting: %s", strerror(errno));
         return false;
     }
+#endif
 
     // Construct the environment for the child before we fork.
     passwd* pw = getpwuid(getuid());
@@ -291,11 +310,38 @@ bool Subprocess::ForkAndExec(std::string* error) {
     cenv.push_back(nullptr);
 
     if (type_ == SubprocessType::kPty) {
+#if defined(ADB_NOMMU)
+        // openpty() creates a PTY pair without forking. The parent keeps the
+        // master side (stdinout_sfd_) and the child will open the slave side
+        // via the posix_spawn file-actions.
+        int master_fd = -1, slave_fd = -1;
+        if (openpty(&master_fd, &slave_fd, pts_name, nullptr, nullptr) != 0) {
+            *error = android::base::StringPrintf("openpty failed: %s", strerror(errno));
+            return false;
+        }
+        stdinout_sfd_.reset(master_fd);
+        child_stdinout_sfd.reset(slave_fd);
+        // Apply raw-mode to the slave side in the parent since we can't run
+        // OpenPtyChildFd() inside a vforked child.
+        if (make_pty_raw_) {
+            termios tattr;
+            if (tcgetattr(slave_fd, &tattr) == -1) {
+                *error = android::base::StringPrintf("tcgetattr failed: %s", strerror(errno));
+                return false;
+            }
+            cfmakeraw(&tattr);
+            if (tcsetattr(slave_fd, TCSADRAIN, &tattr) == -1) {
+                *error = android::base::StringPrintf("tcsetattr failed: %s", strerror(errno));
+                return false;
+            }
+        }
+#else
         int fd;
         pid_ = forkpty(&fd, pts_name, nullptr, nullptr);
         if (pid_ > 0) {
           stdinout_sfd_.reset(fd);
         }
+#endif
     } else {
         if (!CreateSocketpair(&stdinout_sfd_, &child_stdinout_sfd)) {
             *error = android::base::StringPrintf("failed to create socketpair for stdin/out: %s",
@@ -309,9 +355,12 @@ bool Subprocess::ForkAndExec(std::string* error) {
                                                  strerror(errno));
             return false;
         }
+#if !defined(ADB_NOMMU)
         pid_ = fork();
+#endif
     }
 
+#if !defined(ADB_NOMMU)
     if (pid_ == -1) {
         *error = android::base::StringPrintf("fork failed: %s", strerror(errno));
         return false;
@@ -347,18 +396,87 @@ bool Subprocess::ForkAndExec(std::string* error) {
         child_error_sfd.reset(-1);
         _Exit(1);
     }
+#else
+    // ---- noMMU path: use posix_spawn ----
+    {
+        // Build the argv for /bin/sh.
+        std::vector<const char*> argv;
+        argv.push_back(_PATH_BSHELL);
+        if (command_.empty()) {
+            argv.push_back("-");
+        } else {
+            argv.push_back("-c");
+            argv.push_back(command_.c_str());
+        }
+        argv.push_back(nullptr);
+
+        posix_spawn_file_actions_t actions;
+        posix_spawnattr_t attrs;
+        posix_spawn_file_actions_init(&actions);
+        posix_spawnattr_init(&attrs);
+
+        // dup2 the child's std fds into place, then close the originals in
+        // the child.
+        posix_spawn_file_actions_adddup2(&actions, child_stdinout_sfd.get(), STDIN_FILENO);
+        posix_spawn_file_actions_adddup2(&actions, child_stdinout_sfd.get(), STDOUT_FILENO);
+        if (child_stderr_sfd != -1) {
+            posix_spawn_file_actions_adddup2(&actions, child_stderr_sfd.get(), STDERR_FILENO);
+        } else {
+            posix_spawn_file_actions_adddup2(&actions, child_stdinout_sfd.get(), STDERR_FILENO);
+        }
+        posix_spawn_file_actions_addclose(&actions, child_stdinout_sfd.get());
+        if (child_stderr_sfd != -1) {
+            posix_spawn_file_actions_addclose(&actions, child_stderr_sfd.get());
+        }
+        // Close parent-side FDs in the child so it doesn't hold them open.
+        if (stdinout_sfd_.get() >= 0) {
+            posix_spawn_file_actions_addclose(&actions, stdinout_sfd_.get());
+        }
+        if (stderr_sfd_.get() >= 0) {
+            posix_spawn_file_actions_addclose(&actions, stderr_sfd_.get());
+        }
+
+        // On noMMU we can't safely run init_subproc_child() (setsid + oom
+        // write) in the vforked child, so skip it. The daemon is typically a
+        // single-session process on uClinux and the PTY already provides its
+        // own session semantics for interactive shells.
+        (void)attrs;
+
+        int spawn_err = posix_spawn(&pid_, _PATH_BSHELL, &actions, &attrs,
+                                    const_cast<char* const*>(argv.data()),
+                                    const_cast<char* const*>(cenv.data()));
+        posix_spawn_file_actions_destroy(&actions);
+        posix_spawnattr_destroy(&attrs);
+
+        if (spawn_err != 0) {
+            *error = android::base::StringPrintf(
+                "posix_spawn '%s' failed: %s", _PATH_BSHELL, strerror(spawn_err));
+            pid_ = -1;
+            return false;
+        }
+    }
+#endif
 
     // Subprocess parent.
     D("subprocess parent: stdin/stdout FD = %d, stderr FD = %d",
       stdinout_sfd_.get(), stderr_sfd_.get());
 
-    // Wait to make sure the subprocess exec'd without error.
+#if !defined(ADB_NOMMU)
+    // Wait to make sure the subprocess exec'd without error. On noMMU the
+    // posix_spawn return value already covers exec failure.
     child_error_sfd.reset(-1);
     std::string error_message = ReadAll(parent_error_sfd);
     if (!error_message.empty()) {
         *error = error_message;
         return false;
     }
+#else
+    // On noMMU the child's dup targets (the slave PTY / child socketpair ends)
+    // are owned by child_stdinout_sfd / child_stderr_sfd and must be closed in
+    // the parent now that the child has its own dup'd copies.
+    child_stdinout_sfd.reset(-1);
+    child_stderr_sfd.reset(-1);
+#endif
 
     D("subprocess parent: exec completed");
     if (protocol_ == SubprocessProtocol::kNone) {

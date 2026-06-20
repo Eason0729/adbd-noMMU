@@ -731,6 +731,11 @@ static __inline__ bool adb_thread_create(adb_thread_func_t start, void* arg,
     pthread_attr_t attr;
     pthread_attr_init(&attr);
     pthread_attr_setdetachstate(&attr, thread ? PTHREAD_CREATE_JOINABLE : PTHREAD_CREATE_DETACHED);
+#if defined(ADB_NOMMU)
+    // On noMMU the default thread stack is 2 MB (uClibc default) which
+    // exhausts the total RAM (~2 MB).  Use a small fixed-size stack.
+    pthread_attr_setstacksize(&attr, 32768);
+#endif
     auto* pthread_args = new adb_pthread_args{.func = start, .arg = arg};
     errno = pthread_create(&temp, &attr, adb_pthread_wrapper, pthread_args);
     if (errno == 0) {
@@ -759,6 +764,10 @@ static __inline__ void __attribute__((noreturn)) adb_thread_exit() {
 static __inline__ int adb_thread_setname(const std::string& name) {
 #ifdef __APPLE__
     return pthread_setname_np(name.c_str());
+#elif defined(ADB_NOMMU)
+    // uClibc-ng on noMMU/uClinux lacks pthread_setname_np; silently no-op.
+    (void)name;
+    return 0;
 #else
     const char *s = name.c_str();
 
