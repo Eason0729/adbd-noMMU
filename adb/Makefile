@@ -54,6 +54,7 @@ LOCAL_CFLAGS := -DADB_HOST=0 -Wall -Wno-unused-parameter
 LOCAL_CFLAGS += -D_XOPEN_SOURCE -D_GNU_SOURCE -DHAVE_PTHREADS=1
 LOCAL_CFLAGS += -DADB_NON_ANDROID=1 -DADB_REVISION='"$(adb_version)"'
 LOCAL_CFLAGS += -DPROP_NAME_MAX=32 -DPROP_VALUE_MAX=92 -DALLOW_ADBD_NO_AUTH=1
+LOCAL_CFLAGS += $(ADB_NOMMU_DEFINE)
 LOCAL_INCLUDES := -I$(top_srcdir)/include -I$(top_srcdir)/base/include/ -I$(top_srcdir)/libcrypto_utils/include/ -I$(srcdir)
 
 LOCAL_MODULE := adbd
@@ -71,18 +72,20 @@ CXXFLAGS = $(OPT_CXXFLAGS) -std=c++14 $(LOCAL_CFLAGS) $(LOCAL_INCLUDES)
 CFLAGS= $(OPT_CFLAGS) $(LOCAL_CFLAGS) $(LOCAL_INCLUDES)
 
 %.o: %.cpp
-	g++ -g -c -fPIC $(CXXFLAGS) $(LFLAGS) $< -o $@
+	$(CXX) -g -c -fPIC $(CXXFLAGS) $(LFLAGS) $< -o $@
 
 %.o: %.c
-	gcc -g -c -fPIC $(CFLAGS) $(LFLAGS) $< -o $@
+	$(CC) -g -c -fPIC $(CFLAGS) $(LFLAGS) $< -o $@
 
-all: $(LOCAL_MODULE) xdg-adbd
+all: $(LOCAL_MODULE)
 
 $(LOCAL_MODULE): $(OBJS)
-	g++ -fPIC $(CXXFLAGS) $^ -L ../libcutils/*.o ../base/*.o ../libcrypto_utils/*.o -lpthread -lresolv -lcrypto -lssl -lutil -o $@
+	$(CXX) -fPIC $(CXXFLAGS) $(LFLAGS) $^ \
+		../libcutils/*.o ../base/*.o ../libcrypto_utils/*.o \
+		-lpthread -lresolv -latomic -o $@
 
 xdg-adbd: xdg-adbd.c
-	gcc -o $@ $< $(CFLAGS) $(LFLAGS) `pkg-config --libs --cflags glib-2.0`
+	$(CC) -o $@ $< $(CFLAGS) $(LFLAGS) `pkg-config --libs --cflags glib-2.0`
 
 clean:
 	rm -f $(LOCAL_MODULE) xdg-adbd *.o daemon/*.o

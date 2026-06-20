@@ -33,13 +33,13 @@ LOCAL_CFLAGS += $(targetSmpFlag)
 ################################
 
 OBJS = $(LOCAL_SRC_FILES:.cpp=.o)
-CXXFLAGS = $(OPT_CXXFLAGS) -std=c++0x $(LOCAL_CFLAGS) -I$(top_srcdir)/include/ -I$(srcdir)/include -I$(srcdir) -DHAVE_PTHREADS=1 -DADB_NON_ANDROID=1
+CXXFLAGS = $(OPT_CXXFLAGS) -std=c++0x $(LOCAL_CFLAGS) -I$(top_srcdir)/include/ -I$(srcdir)/include -I$(srcdir) -DHAVE_PTHREADS=1 -DADB_NON_ANDROID=1 $(ADB_NOMMU_DEFINE)
 CXXFLAGS += -DPROP_NAME_MAX=32 -DPROP_VALUE_MAX=92
 
 all: $(LOCAL_MODULE)
 
 %.o: %.cpp
-	g++ -g -c -fPIC $(CXXFLAGS) $(LFLAGS) $< -o $@
+	$(CXX) -g -c -fPIC $(CXXFLAGS) $(LFLAGS) $< -o $@
 
 $(LOCAL_MODULE): $(OBJS)
 	ar rcs $@ $?

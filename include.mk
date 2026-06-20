@@ -10,3 +10,11 @@ mandir ?= $(datadir)/man
 sysconfdir ?= $(prefix)/etc
 OPT_CFLAGS ?= -O2 -g
 OPT_CXXFLAGS ?= -O2 -g
+ADB_NOMMU ?= 0
+CC ?= gcc
+CXX ?= g++
+
+# Internal helper: non-empty when building for noMMU Linux.
+ifneq ($(ADB_NOMMU),0)
+ADB_NOMMU_DEFINE = -DADB_NOMMU=1
+endif

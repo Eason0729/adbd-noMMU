@@ -15,6 +15,7 @@ print_help() {
     echo "--docdir=DIR		Install documentation files in DIR (default DATADIR/doc/tgt)"
     echo "--sbindir=DIR		Install binaries in DIR (default DATADIR/sbin)"
     echo "--disable-man         Disable building and installing man pages"
+    echo "--enable-nommu        Build for noMMU Linux (uClibc/uClinux); use posix_spawn instead of fork"
 }
 
 top_srcdir=$(dirname $0)
@@ -28,6 +29,7 @@ mandir='$(datadir)/man'
 sysconfdir='$(prefix)/etc'
 CFLAGS='-O2 -g'
 CXXFLAGS='-O2 -g'
+nommu=false
 
 while [ $# '>' 0 ] ; do
     option=`expr "$1" : '\([^=]*\)='`
@@ -72,6 +74,9 @@ while [ $# '>' 0 ] ; do
             ;;
         --with-*|--without-*|--enable-*|--disable-*)
             consume_next=false
+            case "$option" in
+                --enable-nommu) nommu=true ;;
+            esac
             ;;
         --help)
             print_help
@@ -94,6 +99,7 @@ mandir = $mandir
 sysconfdir = $sysconfdir
 OPT_CFLAGS = $CFLAGS
 OPT_CXXFLAGS = $CXXFLAGS
+ADB_NOMMU = $nommu
 EOF
 
 if [ "$(pwd)" != "$(cd $top_srcdir && pwd)" ] ; then

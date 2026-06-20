@@ -9,13 +9,13 @@ LOCAL_MODULE = libcrypto_utils.a
 ################################
 
 OBJS = $(LOCAL_SRC_FILES:.c=.o)
-CFLAGS = $(OPT_CFLAGS) $(LOCAL_CFLAGS) -I$(top_srcdir)/include/ -I$(srcdir)/include/ -I$(srcdir) -DHAVE_PTHREADS=1 -DADB_NON_ANDROID=1
+CFLAGS = $(OPT_CFLAGS) $(LOCAL_CFLAGS) -I$(top_srcdir)/include/ -I$(srcdir)/include/ -I$(srcdir) -DHAVE_PTHREADS=1 -DADB_NON_ANDROID=1 $(ADB_NOMMU_DEFINE)
 CFLAGS += -DPROP_NAME_MAX=32 -DPROP_VALUE_MAX=92
 
 all: $(LOCAL_MODULE)
 
 %.o: %.c
-	gcc -g -c -fPIC $(CFLAGS) $(LFLAGS) $< -o $@
+	$(CC) -g -c -fPIC $(CFLAGS) $(LFLAGS) $< -o $@
 
 $(LOCAL_MODULE): $(OBJS)
 	ar rcs $@ $?
