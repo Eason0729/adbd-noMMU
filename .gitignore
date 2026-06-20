@@ -4,3 +4,4 @@
 *.a
 adb/adbd
 adb/xdg-adbd
+/toolchain
