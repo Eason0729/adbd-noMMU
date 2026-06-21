@@ -16,20 +16,19 @@
 
 #define TRACE_TAG ADB
 
-#include "sysdeps.h"
-
+#include <android-base/logging.h>
+#include <android-base/stringprintf.h>
 #include <errno.h>
+#include <getopt.h>
+#include <linux/capability.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <getopt.h>
 #include <sys/prctl.h>
-#include <linux/capability.h>
 
 #include <memory>
 
-#include <android-base/logging.h>
-#include <android-base/stringprintf.h>
+#include "sysdeps.h"
 #ifndef ADB_NON_ANDROID
 #include <libminijail.h>
 #endif
@@ -50,7 +49,7 @@
 static const char* root_seclabel = nullptr;
 
 #ifndef ADB_NON_ANDROID
-static void drop_capabilities_bounding_set_if_needed(struct minijail *j) {
+static void drop_capabilities_bounding_set_if_needed(struct minijail* j) {
 #if defined(ALLOW_ADBD_ROOT)
     char value[PROPERTY_VALUE_MAX];
     property_get("ro.debuggable", value, "");
@@ -100,13 +99,12 @@ static bool should_drop_privileges() {
 
     return drop;
 #else
-    return true; // "adb root" not allowed, always drop privileges.
-#endif // ALLOW_ADBD_ROOT
+    return true;  // "adb root" not allowed, always drop privileges.
+#endif  // ALLOW_ADBD_ROOT
 }
 
 static void drop_privileges(int server_port) {
-    std::unique_ptr<minijail, void (*)(minijail*)> jail(minijail_new(),
-                                                        &minijail_destroy);
+    std::unique_ptr<minijail, void (*)(minijail*)> jail(minijail_new(), &minijail_destroy);
 
     // Add extra groups:
     // AID_ADB to access the USB driver
@@ -118,13 +116,10 @@ static void drop_privileges(int server_port) {
     // AID_SDCARD_RW to allow writing to the SD card
     // AID_NET_BW_STATS to read out qtaguid statistics
     // AID_READPROC for reading /proc entries across UID boundaries
-    gid_t groups[] = {AID_ADB,      AID_LOG,       AID_INPUT,
-                      AID_INET,     AID_NET_BT,    AID_NET_BT_ADMIN,
-                      AID_SDCARD_R, AID_SDCARD_RW, AID_NET_BW_STATS,
-                      AID_READPROC};
-    minijail_set_supplementary_gids(jail.get(),
-                                    sizeof(groups) / sizeof(groups[0]),
-                                    groups);
+    gid_t groups[] = {AID_ADB,          AID_LOG,          AID_INPUT,    AID_INET,
+                      AID_NET_BT,       AID_NET_BT_ADMIN, AID_SDCARD_R, AID_SDCARD_RW,
+                      AID_NET_BW_STATS, AID_READPROC};
+    minijail_set_supplementary_gids(jail.get(), sizeof(groups) / sizeof(groups[0]), groups);
 
     // Don't listen on a port (default 5037) if running in secure mode.
     // Don't run as root if running in secure mode.
@@ -147,8 +142,7 @@ static void drop_privileges(int server_port) {
             }
         }
         std::string error;
-        std::string local_name =
-            android::base::StringPrintf("tcp:%d", server_port);
+        std::string local_name = android::base::StringPrintf("tcp:%d", server_port);
         if (install_listener(local_name, "*smartsocket*", nullptr, 0, nullptr, &error)) {
             LOG(FATAL) << "Could not install *smartsocket* listener: " << error;
         }
@@ -226,6 +220,11 @@ int adbd_main(int server_port) {
 }
 
 int main(int argc, char** argv) {
+    fprintf(stderr, "adbd: starting (argc=%d)\n", argc);
+    for (int i = 0; i < argc; i++) {
+        fprintf(stderr, "adbd: argv[%d] = %s\n", i, argv[i]);
+    }
+
     while (true) {
         static struct option opts[] = {
             {"root_seclabel", required_argument, nullptr, 's'},
@@ -241,20 +240,19 @@ int main(int argc, char** argv) {
         }
 
         switch (c) {
-        case 's':
-            root_seclabel = optarg;
-            break;
-        case 'b':
-            adb_device_banner = optarg;
-            break;
-        case 'v':
-            printf("Android Debug Bridge Daemon version %d.%d.%d %s\n",
-                   ADB_VERSION_MAJOR, ADB_VERSION_MINOR, ADB_SERVER_VERSION,
-                   ADB_REVISION);
-            return 0;
-        default:
-            // getopt already prints "adbd: invalid option -- %c" for us.
-            return 1;
+            case 's':
+                root_seclabel = optarg;
+                break;
+            case 'b':
+                adb_device_banner = optarg;
+                break;
+            case 'v':
+                printf("Android Debug Bridge Daemon version %d.%d.%d %s\n", ADB_VERSION_MAJOR,
+                       ADB_VERSION_MINOR, ADB_SERVER_VERSION, ADB_REVISION);
+                return 0;
+            default:
+                // getopt already prints "adbd: invalid option -- %c" for us.
+                return 1;
         }
     }
 
