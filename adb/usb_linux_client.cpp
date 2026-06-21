@@ -222,10 +222,10 @@ static const struct usb_ext_compat_desc os_desc_compat = {
 static const struct usb_os_desc_header os_desc_header = {
     .interface = cpu_to_le32(1),
     .dwLength = cpu_to_le32(sizeof(struct usb_os_desc_header) + sizeof(struct usb_ext_compat_desc)),
-    .bcdVersion = cpu_to_le32(1),
-    .wIndex = cpu_to_le32(4),
-    .bCount = cpu_to_le32(1),
-    .Reserved = cpu_to_le32(0),
+    .bcdVersion = cpu_to_le16(0x0100),
+    .wIndex = cpu_to_le16(4),
+    .bCount = cpu_to_le16(1),
+    .Reserved = cpu_to_le16(0),
 };
 
 static const struct {
