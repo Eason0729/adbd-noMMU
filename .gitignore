@@ -2,6 +2,7 @@
 *.pyc
 *.o
 *.a
+*.su
 adb/adbd
 adb/xdg-adbd
 /toolchain

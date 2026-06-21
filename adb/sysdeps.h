@@ -475,6 +475,34 @@ size_t ParseCompleteUTF8(const char* first, const char* last, std::vector<char>*
 
 #include <string>
 
+#if defined(ADB_NOMMU)
+#include <sys/mman.h>
+// Allocate a scratch buffer from the kernel page pool instead of the stack.
+// This reduces per-thread stack pressure, enabling smaller thread stacks.
+#define SCRATCH_ALLOC(size) \
+    mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0)
+#define SCRATCH_FREE(ptr, size) \
+    munmap(ptr, size)
+// RAII wrapper that frees the buffer on destruction.
+class ScratchBuf {
+public:
+    explicit ScratchBuf(size_t size) : size_(size),
+        ptr_(static_cast<char*>(mmap(NULL, size, PROT_READ | PROT_WRITE,
+                                     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0))) {}
+    ~ScratchBuf() { if (ptr_ && ptr_ != MAP_FAILED) munmap(ptr_, size_); }
+    char* get() { return ptr_; }
+    bool valid() const { return ptr_ != MAP_FAILED; }
+    ScratchBuf(const ScratchBuf&) = delete;
+    ScratchBuf& operator=(const ScratchBuf&) = delete;
+private:
+    size_t size_;
+    char* ptr_;
+};
+#else
+#define SCRATCH_ALLOC(size) malloc(size)
+#define SCRATCH_FREE(ptr, size) free(ptr)
+#endif
+
 #define OS_PATH_SEPARATORS "/"
 #define OS_PATH_SEPARATOR '/'
 #define OS_PATH_SEPARATOR_STR "/"
@@ -734,7 +762,7 @@ static __inline__ bool adb_thread_create(adb_thread_func_t start, void* arg,
 #if defined(ADB_NOMMU)
     // On noMMU the default thread stack is 2 MB (uClibc default) which
     // exhausts the total RAM (~2 MB).  Use a small fixed-size stack.
-    pthread_attr_setstacksize(&attr, 32768);
+    pthread_attr_setstacksize(&attr, 16384);
 #endif
     auto* pthread_args = new adb_pthread_args{.func = start, .arg = arg};
     errno = pthread_create(&temp, &attr, adb_pthread_wrapper, pthread_args);

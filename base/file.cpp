@@ -21,6 +21,10 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
+#if defined(ADB_NOMMU)
+#include <sys/mman.h>
+#endif
+
 #include <string>
 #include <string.h>
 
@@ -39,11 +43,20 @@ using namespace android::base::utf8;
 bool ReadFdToString(int fd, std::string* content) {
   content->clear();
 
+#if defined(ADB_NOMMU)
+  char* buf = static_cast<char*>(mmap(NULL, BUFSIZ, PROT_READ | PROT_WRITE,
+                                       MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
+  if (buf == MAP_FAILED) return false;
+#else
   char buf[BUFSIZ];
+#endif
   ssize_t n;
-  while ((n = TEMP_FAILURE_RETRY(read(fd, &buf[0], sizeof(buf)))) > 0) {
+  while ((n = TEMP_FAILURE_RETRY(read(fd, &buf[0], BUFSIZ))) > 0) {
     content->append(buf, n);
   }
+#if defined(ADB_NOMMU)
+  munmap(buf, BUFSIZ);
+#endif
   return (n == 0) ? true : false;
 }
 

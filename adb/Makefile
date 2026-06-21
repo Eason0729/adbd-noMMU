@@ -82,11 +82,10 @@ all: $(LOCAL_MODULE)
 $(LOCAL_MODULE): $(OBJS)
 	$(CXX) -fPIC $(CXXFLAGS) $(LFLAGS) $^ \
 		../libcutils/*.o ../base/*.o ../libcrypto_utils/*.o \
-		-lpthread -lresolv -latomic -o $@
+		-lpthread -lresolv -o $@
 
 xdg-adbd: xdg-adbd.c
 	$(CC) -o $@ $< $(CFLAGS) $(LFLAGS) `pkg-config --libs --cflags glib-2.0`
 
 clean:
 	rm -f $(LOCAL_MODULE) xdg-adbd *.o daemon/*.o
-

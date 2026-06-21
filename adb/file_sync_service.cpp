@@ -443,7 +443,12 @@ static bool handle_sync_command(sync_fd s, std::vector<char>& buffer) {
         SendSyncFail(s, "path too long");
         return false;
     }
-    char name[1025];
+    ScratchBuf _name_buf(1025);
+    if (!_name_buf.valid()) {
+        SendSyncFail(s, "scratch allocation failure");
+        return false;
+    }
+    char* name = _name_buf.get();
     if (!ReadFdExactly(s.rfd, name, path_length)) {
         SendSyncFail(s, "filename read failure");
         return false;

@@ -32,18 +32,28 @@
 
 #if defined(ADB_NOMMU) && !defined(ADB_NOMMU_NO_CRYPTO)
 /* Simple base64 decode replacement for __b64_pton (BSD libc) on uClibc. */
+static const int8_t adb_b64_tbl[256] = {
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 62, -1, -1, -1, 63,
+    52, 53, 54, 55, 56, 57, 58, 59, 60, 61, -1, -1, -1, -1, -1, -1,
+    -1,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14,
+    15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, -1, -1, -1, -1, -1,
+    -1, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40,
+    41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, -1, -1, -1, -1, -1,
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+};
 static int adb_b64_pton(const char *in, uint8_t *out, int outlen) {
-    static int8_t tbl[256];
-    static int tbl_init;
-    if (!tbl_init) {
-        memset(tbl, -1, sizeof(tbl));
-        const char *chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-        for (int i = 0; i < 64; i++) tbl[(unsigned char)chars[i]] = i;
-        tbl_init = 1;
-    }
     int val = 0, bits = 0, idx = 0;
     for (; *in; in++) {
-        int8_t d = tbl[(unsigned char)*in];
+        int8_t d = adb_b64_tbl[(unsigned char)*in];
         if (d == -1) continue;
         val = (val << 6) | d;
         bits += 6;
@@ -71,7 +81,7 @@ static fdevent framework_fde;
 static int framework_fd = -1;
 
 static void usb_disconnected(void* unused, atransport* t);
-static struct adisconnect usb_disconnect = { usb_disconnected, nullptr};
+static const struct adisconnect usb_disconnect = { usb_disconnected, nullptr};
 static atransport* usb_transport;
 static bool needs_retry = false;
 
@@ -237,12 +247,17 @@ static void adb_auth_event(int fd, unsigned events, void*) {
 
 void adb_auth_confirm_key(unsigned char *key, size_t len, atransport *t)
 {
-    char msg[MAX_PAYLOAD_V1];
+    ScratchBuf _msg_buf(MAX_PAYLOAD_V1);
+    if (!_msg_buf.valid()) {
+        D("Scratch allocation failed");
+        return;
+    }
+    char* msg = _msg_buf.get();
     int ret;
 
     if (!usb_transport) {
         usb_transport = t;
-        t->AddDisconnect(&usb_disconnect);
+        t->AddDisconnect(const_cast<adisconnect*>(&usb_disconnect));
     }
 
     if (framework_fd < 0) {
@@ -256,8 +271,8 @@ void adb_auth_confirm_key(unsigned char *key, size_t len, atransport *t)
         return;
     }
 
-    ret = snprintf(msg, sizeof(msg), "PK%s", key);
-    if (ret >= (signed)sizeof(msg)) {
+    ret = snprintf(msg, MAX_PAYLOAD_V1, "PK%s", key);
+    if (ret >= MAX_PAYLOAD_V1) {
         D("Key too long. ret=%d", ret);
         return;
     }

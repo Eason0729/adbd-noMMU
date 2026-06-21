@@ -331,8 +331,10 @@ static void fdevent_process() {
             }
             fde->events |= events;
             D("%s got events %x", dump_fde(fde).c_str(), events);
-            fde->state |= FDE_PENDING;
-            g_pending_list.push_back(fde);
+            if (!(fde->state & FDE_PENDING)) {
+                fde->state |= FDE_PENDING;
+                g_pending_list.push_back(fde);
+            }
         }
     }
 }

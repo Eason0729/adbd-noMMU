@@ -224,7 +224,11 @@ static void server_socket_thread(void* arg) {
             D("server: new connection on fd %d", fd);
             close_on_exec(fd);
             disable_tcp_nagle(fd);
-            if (register_socket_transport(fd, "host", port, 1) != 0) {
+            // Use a unique serial for each connection to support adb connect
+            char serial[32];
+            static int conn_count = 0;
+            snprintf(serial, sizeof(serial), "host-%d", ++conn_count);
+            if (register_socket_transport(fd, serial, port, 0) != 0) {
                 adb_close(fd);
             }
         }

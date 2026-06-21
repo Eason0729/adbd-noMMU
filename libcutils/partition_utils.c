@@ -16,6 +16,7 @@
 
 #include <fcntl.h>
 #include <sys/ioctl.h>
+#include <sys/mman.h>
 #include <sys/mount.h> /* for BLKGETSIZE */
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -39,29 +40,50 @@ static int only_one_char(char *buf, int len, char c)
 
 int partition_wiped(char *source)
 {
-    char buf[4096];
     int fd, ret;
+#if defined(ADB_NOMMU)
+    char *buf = mmap(NULL, 4096, PROT_READ | PROT_WRITE,
+                     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (buf == MAP_FAILED) return 0;
+#else
+    char buf[4096];
+#endif
 
     if ((fd = open(source, O_RDONLY)) < 0) {
+#if defined(ADB_NOMMU)
+        munmap(buf, 4096);
+#endif
         return 0;
     }
 
-    ret = read(fd, buf, sizeof(buf));
+    ret = read(fd, buf, 4096);
     close(fd);
 
-    if (ret != sizeof(buf)) {
+    if (ret != 4096) {
+#if defined(ADB_NOMMU)
+        munmap(buf, 4096);
+#endif
         return 0;
     }
 
     /* Check for all zeros */
-    if (only_one_char(buf, sizeof(buf), 0)) {
+    if (only_one_char(buf, 4096, 0)) {
+#if defined(ADB_NOMMU)
+        munmap(buf, 4096);
+#endif
        return 1;
     }
 
     /* Check for all ones */
-    if (only_one_char(buf, sizeof(buf), 0xff)) {
+    if (only_one_char(buf, 4096, 0xff)) {
+#if defined(ADB_NOMMU)
+        munmap(buf, 4096);
+#endif
        return 1;
     }
+#if defined(ADB_NOMMU)
+    munmap(buf, 4096);
+#endif
 
     return 0;
 }
