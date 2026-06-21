@@ -35,6 +35,10 @@ struct fdevent {
     fdevent *prev;
 
     int fd;
+    // For pipe-based bidirectional channels the write end may be a different
+    // fd than the read end. When write_fd == -1 (or == fd) the fd is a single
+    // bidirectional socket and both reads and writes go through fd.
+    int write_fd;
     int force_eof;
 
     uint16_t state;
@@ -56,8 +60,15 @@ fdevent *fdevent_create(int fd, fd_func func, void *arg);
 void fdevent_destroy(fdevent *fde);
 
 /* Initialize an fdevent object that was externally allocated
-*/
+ */
 void fdevent_install(fdevent *fde, int fd, fd_func func, void *arg);
+
+/* Initialize an fdevent object with separate read/write fds (pipe pair).
+ * |read_fd| is monitored for POLLIN, |write_fd| for POLLOUT. If write_fd == -1
+ * or write_fd == read_fd this behaves like the single-fd variant above.
+ */
+void fdevent_install(fdevent *fde, int read_fd, int write_fd,
+                     fd_func func, void *arg);
 
 /* Uninitialize an fdevent object that was initialized by
 ** fdevent_install()

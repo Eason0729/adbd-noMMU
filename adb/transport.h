@@ -68,8 +68,11 @@ public:
     }
     void Kick();
 
-    int fd = -1;
-    int transport_socket = -1;
+    // The per-transport bidirectional channel between the main thread and the
+    // read/write worker threads. Main thread reads from transport_socket.read_fd
+    // and writes to transport_socket.write_fd; worker threads use fd the other way.
+    adb_channel fd = {-1, -1};
+    adb_channel transport_socket = {-1, -1};
     fdevent transport_fde;
     size_t ref_count = 0;
     uint32_t sync_token = 0;

@@ -29,6 +29,8 @@
 
 #include <android-base/macros.h>
 
+#include "sysdeps.h"
+
 #include "adb.h"
 
 // Class to send and receive shell protocol packets.
@@ -68,8 +70,9 @@ class ShellProtocol {
     // ShellPackets will probably be too large to allocate on the stack so they
     // should be dynamically allocated on the heap instead.
     //
-    // |fd| is an open file descriptor to be used to send or receive packets.
-    explicit ShellProtocol(int fd);
+    // |read_fd| is the fd to read packets from, |write_fd| the fd to write
+    // packets to. For a bidirectional socket read_fd == write_fd.
+    explicit ShellProtocol(int read_fd, int write_fd);
     virtual ~ShellProtocol();
 
     // Returns a pointer to the data buffer.
@@ -112,7 +115,8 @@ class ShellProtocol {
         kHeaderSize = sizeof(Id) + sizeof(length_t)
     };
 
-    int fd_;
+    int read_fd_;
+    int write_fd_;
     char buffer_[kBufferSize];
     size_t data_length_ = 0, bytes_left_ = 0;
 
@@ -140,9 +144,12 @@ enum class SubprocessProtocol {
 // Forks and starts a new shell subprocess. If |name| is empty an interactive
 // shell is started, otherwise |name| is executed non-interactively.
 //
-// Returns an open FD connected to the subprocess or -1 on failure.
-int StartSubprocess(const char* name, const char* terminal_type,
-                    SubprocessType type, SubprocessProtocol protocol);
+// Returns a bidirectional channel connected to the subprocess or {-1,-1} on
+// failure. For the raw no-protocol case read_fd == write_fd (a single PTY or
+// pipe fd); for the shell-protocol case the read and write fds are distinct
+// pipe ends.
+adb_channel StartSubprocess(const char* name, const char* terminal_type,
+                            SubprocessType type, SubprocessProtocol protocol);
 
 #endif  // !ADB_HOST
 

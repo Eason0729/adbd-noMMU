@@ -127,6 +127,8 @@ static int local_socket_enqueue(asocket* s, apacket* p) {
 
     p->ptr = p->data;
 
+    const int write_fd = (s->write_fd >= 0) ? s->write_fd : s->fd;
+
     /* if there is already data queue'd, we will receive
     ** events when it's time to write.  just add this to
     ** the tail
@@ -139,7 +141,7 @@ static int local_socket_enqueue(asocket* s, apacket* p) {
     ** would block or there is an error/eof
     */
     while (p->len > 0) {
-        int r = adb_write(s->fd, p->ptr, p->len);
+        int r = adb_write(write_fd, p->ptr, p->len);
         if (r > 0) {
             p->len -= r;
             p->ptr += r;
@@ -251,6 +253,8 @@ static void local_socket_event_func(int fd, unsigned ev, void* _s) {
     asocket* s = reinterpret_cast<asocket*>(_s);
     D("LS(%d): event_func(fd=%d(==%d), ev=%04x)", s->id, s->fd, fd, ev);
 
+    const int write_fd = (s->write_fd >= 0) ? s->write_fd : s->fd;
+
     /* put the FDE_WRITE processing before the FDE_READ
     ** in order to simplify the code.
     */
@@ -258,7 +262,7 @@ static void local_socket_event_func(int fd, unsigned ev, void* _s) {
         apacket* p;
         while ((p = s->pkt_first) != nullptr) {
             while (p->len > 0) {
-                int r = adb_write(fd, p->ptr, p->len);
+                int r = adb_write(write_fd, p->ptr, p->len);
                 if (r == -1) {
                     /* returning here is ok because FDE_READ will
                     ** be processed in the next iteration loop
@@ -383,19 +387,24 @@ static void local_socket_event_func(int fd, unsigned ev, void* _s) {
 }
 
 asocket* create_local_socket(int fd) {
+    return create_local_socket(fd, -1);
+}
+
+asocket* create_local_socket(int read_fd, int write_fd) {
     asocket* s = reinterpret_cast<asocket*>(calloc(1, sizeof(asocket)));
     if (s == NULL) {
         fatal("cannot allocate socket");
     }
-    s->fd = fd;
+    s->fd = read_fd;
+    s->write_fd = write_fd;
     s->enqueue = local_socket_enqueue;
     s->ready = local_socket_ready;
     s->shutdown = NULL;
     s->close = local_socket_close;
     install_local_socket(s);
 
-    fdevent_install(&s->fde, fd, local_socket_event_func, s);
-    D("LS(%d): created (fd=%d)", s->id, s->fd);
+    fdevent_install(&s->fde, read_fd, write_fd, local_socket_event_func, s);
+    D("LS(%d): created (fd=%d, write_fd=%d)", s->id, s->fd, s->write_fd);
     return s;
 }
 
@@ -408,13 +417,13 @@ asocket* create_local_service_socket(const char* name, const atransport* transpo
         return create_jdwp_tracker_service_socket();
     }
 #endif
-    int fd = service_to_fd(name, transport);
-    if (fd < 0) {
+    adb_channel ch = service_to_fd(name, transport);
+    if (ch.read_fd < 0) {
         return nullptr;
     }
 
-    asocket* s = create_local_socket(fd);
-    D("LS(%d): bound to '%s' via %d", s->id, name, fd);
+    asocket* s = create_local_socket(ch.read_fd, ch.write_fd);
+    D("LS(%d): bound to '%s' via %d/%d", s->id, name, ch.read_fd, ch.write_fd);
 
 #if !ADB_HOST
     char debug[PROPERTY_VALUE_MAX];
@@ -539,7 +548,8 @@ static void local_socket_ready_notify(asocket* s) {
     s->ready = local_socket_ready;
     s->shutdown = NULL;
     s->close = local_socket_close;
-    SendOkay(s->fd);
+    int wfd = s->write_fd >= 0 ? s->write_fd : s->fd;
+    SendOkay(wfd);
     s->ready(s);
 }
 
@@ -550,7 +560,8 @@ static void local_socket_close_notify(asocket* s) {
     s->ready = local_socket_ready;
     s->shutdown = NULL;
     s->close = local_socket_close;
-    SendFail(s->fd, "closed");
+    int wfd = s->write_fd >= 0 ? s->write_fd : s->fd;
+    SendFail(wfd, "closed");
     s->close(s);
 }
 

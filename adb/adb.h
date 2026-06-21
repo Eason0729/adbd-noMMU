@@ -24,6 +24,7 @@
 
 #include <android-base/macros.h>
 
+#include "sysdeps.h"
 #include "adb_trace.h"
 #include "fdevent.h"
 #include "socket.h"
@@ -145,7 +146,7 @@ void init_usb_transport(atransport *t, usb_handle *usb, ConnectionState state);
 atransport* find_emulator_transport_by_adb_port(int adb_port);
 #endif
 
-int service_to_fd(const char* name, const atransport* transport);
+adb_channel service_to_fd(const char* name, const atransport* transport);
 #if ADB_HOST
 asocket *host_service_to_socket(const char*  name, const char *serial);
 #endif
@@ -160,8 +161,8 @@ int       create_jdwp_connection_fd(int  jdwp_pid);
 int handle_forward_request(const char* service, TransportType type, const char* serial, int reply_fd);
 
 #if !ADB_HOST
-void framebuffer_service(int fd, void *cookie);
-void set_verity_enabled_state_service(int fd, void* cookie);
+void framebuffer_service(adb_channel ch, void *cookie);
+void set_verity_enabled_state_service(adb_channel ch, void* cookie);
 #endif
 
 /* packet allocator */

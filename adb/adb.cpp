@@ -864,7 +864,7 @@ int launch_server(int server_port)
 
     // set up a pipe so the child can tell us when it is ready.
     // fd[0] will be parent's end, and the child will write on fd[1]
-    if (pipe(fd)) {
+    if (adb_pipe(fd)) {
         fprintf(stderr, "pipe failed in launch_server, errno: %d\n", errno);
         return -1;
     }

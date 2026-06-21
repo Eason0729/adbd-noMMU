@@ -47,11 +47,11 @@ static const bool kAllowDisableVerity = false;
 #endif
 
 /* Turn verity on/off */
-static int set_verity_enabled_state(int fd, const char *block_device,
-                                    const char* mount_point, bool enable)
+static int set_verity_enabled_state(int wfd, const char *block_device,
+                                     const char* mount_point, bool enable)
 {
     if (!make_block_device_writable(block_device)) {
-        WriteFdFmt(fd, "Could not make block device %s writable (%s).\n",
+        WriteFdFmt(wfd, "Could not make block device %s writable (%s).\n",
                    block_device, strerror(errno));
         return -1;
     }
@@ -59,41 +59,42 @@ static int set_verity_enabled_state(int fd, const char *block_device,
     fec::io fh(block_device, O_RDWR);
 
     if (!fh) {
-        WriteFdFmt(fd, "Could not open block device %s (%s).\n", block_device, strerror(errno));
-        WriteFdFmt(fd, "Maybe run adb root?\n");
+        WriteFdFmt(wfd, "Could not open block device %s (%s).\n", block_device, strerror(errno));
+        WriteFdFmt(wfd, "Maybe run adb root?\n");
         return -1;
     }
 
     fec_verity_metadata metadata;
 
     if (!fh.get_verity_metadata(metadata)) {
-        WriteFdFmt(fd, "Couldn't find verity metadata!\n");
+        WriteFdFmt(wfd, "Couldn't find verity metadata!\n");
         return -1;
     }
 
     if (!enable && metadata.disabled) {
-        WriteFdFmt(fd, "Verity already disabled on %s\n", mount_point);
+        WriteFdFmt(wfd, "Verity already disabled on %s\n", mount_point);
         return -1;
     }
 
     if (enable && !metadata.disabled) {
-        WriteFdFmt(fd, "Verity already enabled on %s\n", mount_point);
+        WriteFdFmt(wfd, "Verity already enabled on %s\n", mount_point);
         return -1;
     }
 
     if (!fh.set_verity_status(enable)) {
-        WriteFdFmt(fd, "Could not set verity %s flag on device %s with error %s\n",
+        WriteFdFmt(wfd, "Could not set verity %s flag on device %s with error %s\n",
                    enable ? "enabled" : "disabled",
                    block_device, strerror(errno));
         return -1;
     }
 
-    WriteFdFmt(fd, "Verity %s on %s\n", enable ? "enabled" : "disabled", mount_point);
+    WriteFdFmt(wfd, "Verity %s on %s\n", enable ? "enabled" : "disabled", mount_point);
     return 0;
 }
 
-void set_verity_enabled_state_service(int fd, void* cookie)
+void set_verity_enabled_state_service(adb_channel ch, void* cookie)
 {
+    int wfd = ch.write_fd >= 0 ? ch.write_fd : ch.read_fd;
     bool enable = (cookie != NULL);
     if (kAllowDisableVerity) {
         char fstab_filename[PROPERTY_VALUE_MAX + sizeof(FSTAB_PREFIX)];
@@ -103,13 +104,13 @@ void set_verity_enabled_state_service(int fd, void* cookie)
 
         property_get("ro.secure", propbuf, "0");
         if (strcmp(propbuf, "1")) {
-            WriteFdFmt(fd, "verity not enabled - ENG build\n");
+            WriteFdFmt(wfd, "verity not enabled - ENG build\n");
             goto errout;
         }
 
         property_get("ro.debuggable", propbuf, "0");
         if (strcmp(propbuf, "1")) {
-            WriteFdFmt(fd, "verity cannot be disabled/enabled - USER build\n");
+            WriteFdFmt(wfd, "verity cannot be disabled/enabled - USER build\n");
             goto errout;
         }
 
@@ -119,14 +120,14 @@ void set_verity_enabled_state_service(int fd, void* cookie)
 
         fstab = fs_mgr_read_fstab(fstab_filename);
         if (!fstab) {
-            WriteFdFmt(fd, "Failed to open %s\nMaybe run adb root?\n", fstab_filename);
+            WriteFdFmt(wfd, "Failed to open %s\nMaybe run adb root?\n", fstab_filename);
             goto errout;
         }
 
         /* Loop through entries looking for ones that vold manages */
         for (i = 0; i < fstab->num_entries; i++) {
             if(fs_mgr_is_verified(&fstab->recs[i])) {
-                if (!set_verity_enabled_state(fd, fstab->recs[i].blk_device,
+                if (!set_verity_enabled_state(wfd, fstab->recs[i].blk_device,
                                               fstab->recs[i].mount_point,
                                               enable)) {
                     any_changed = true;
@@ -135,20 +136,20 @@ void set_verity_enabled_state_service(int fd, void* cookie)
         }
 
         if (any_changed) {
-            WriteFdFmt(fd, "Now reboot your device for settings to take effect\n");
+            WriteFdFmt(wfd, "Now reboot your device for settings to take effect\n");
         }
     } else {
-        WriteFdFmt(fd, "%s-verity only works for userdebug builds\n",
+        WriteFdFmt(wfd, "%s-verity only works for userdebug builds\n",
                    enable ? "enable" : "disable");
     }
 
 errout:
-    adb_close(fd);
+    adb_channel_close(&ch);
 }
 #else
-void set_verity_enabled_state_service(int fd, void* cookie)
+void set_verity_enabled_state_service(adb_channel ch, void* cookie)
 {
-    adb_close(fd);
+    adb_channel_close(&ch);
 }
 #endif /* !ADB_NON_ANDROID */
 

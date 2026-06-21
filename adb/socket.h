@@ -58,12 +58,16 @@ struct asocket {
 
     asocket *peer;
 
-        /* For local asockets, the fde is used to bind
-        ** us to our fd event system.  For remote asockets
-        ** these fields are not used.
-        */
+    /* For local asockets, the fde is used to bind
+    ** us to our fd event system.  For remote asockets
+    ** these fields are not used.
+    */
     fdevent fde;
     int fd;
+    // For pipe-based bidirectional channels the write end may be a different
+    // fd than the read end. When write_fd == -1 the single fd above is used
+    // for both reading and writing (real socket case).
+    int write_fd;
 
         /* queue of apackets waiting to be written
         */
@@ -107,6 +111,9 @@ void remove_socket(asocket *s);
 void close_all_sockets(atransport *t);
 
 asocket *create_local_socket(int fd);
+// Variant for pipe-based bidirectional channels with separate read/write fds.
+// If write_fd == -1 or write_fd == read_fd, behaves like create_local_socket(fd).
+asocket *create_local_socket(int read_fd, int write_fd);
 asocket *create_local_service_socket(const char* destination,
                                      const atransport* transport);
 

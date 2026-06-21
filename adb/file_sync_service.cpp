@@ -112,7 +112,14 @@ static bool secure_mkdirs(const std::string& path) {
     return true;
 }
 
-static bool do_stat(int s, const char* path) {
+// The sync channel carries commands (read) and responses (write) over what
+// may be two separate pipe fds. Helpers below receive this by value.
+struct sync_fd {
+    int rfd;
+    int wfd;
+};
+
+static bool do_stat(sync_fd s, const char* path) {
     syncmsg msg;
     msg.stat.id = ID_STAT;
 
@@ -123,10 +130,10 @@ static bool do_stat(int s, const char* path) {
     msg.stat.size = st.st_size;
     msg.stat.time = st.st_mtime;
 
-    return WriteFdExactly(s, &msg.stat, sizeof(msg.stat));
+    return WriteFdExactly(s.wfd, &msg.stat, sizeof(msg.stat));
 }
 
-static bool do_list(int s, const char* path) {
+static bool do_list(sync_fd s, const char* path) {
     dirent* de;
 
     syncmsg msg;
@@ -146,8 +153,8 @@ static bool do_list(int s, const char* path) {
             msg.dent.time = st.st_mtime;
             msg.dent.namelen = d_name_length;
 
-            if (!WriteFdExactly(s, &msg.dent, sizeof(msg.dent)) ||
-                    !WriteFdExactly(s, de->d_name, d_name_length)) {
+            if (!WriteFdExactly(s.wfd, &msg.dent, sizeof(msg.dent)) ||
+                    !WriteFdExactly(s.wfd, de->d_name, d_name_length)) {
                 return false;
             }
         }
@@ -159,26 +166,26 @@ done:
     msg.dent.size = 0;
     msg.dent.time = 0;
     msg.dent.namelen = 0;
-    return WriteFdExactly(s, &msg.dent, sizeof(msg.dent));
+    return WriteFdExactly(s.wfd, &msg.dent, sizeof(msg.dent));
 }
 
 // Make sure that SendFail from adb_io.cpp isn't accidentally used in this file.
 #pragma GCC poison SendFail
 
-static bool SendSyncFail(int fd, const std::string& reason) {
+static bool SendSyncFail(sync_fd s, const std::string& reason) {
     D("sync: failure: %s", reason.c_str());
 
     syncmsg msg;
     msg.data.id = ID_FAIL;
     msg.data.size = reason.size();
-    return WriteFdExactly(fd, &msg.data, sizeof(msg.data)) && WriteFdExactly(fd, reason);
+    return WriteFdExactly(s.wfd, &msg.data, sizeof(msg.data)) && WriteFdExactly(s.wfd, reason);
 }
 
-static bool SendSyncFailErrno(int fd, const std::string& reason) {
-    return SendSyncFail(fd, android::base::StringPrintf("%s: %s", reason.c_str(), strerror(errno)));
+static bool SendSyncFailErrno(sync_fd s, const std::string& reason) {
+    return SendSyncFail(s, android::base::StringPrintf("%s: %s", reason.c_str(), strerror(errno)));
 }
 
-static bool handle_send_file(int s, const char* path, uid_t uid, gid_t gid, uint64_t capabilities,
+static bool handle_send_file(sync_fd s, const char* path, uid_t uid, gid_t gid, uint64_t capabilities,
                              mode_t mode, std::vector<char>& buffer, bool do_unlink) {
     syncmsg msg;
     unsigned int timestamp = 0;
@@ -224,7 +231,7 @@ static bool handle_send_file(int s, const char* path, uid_t uid, gid_t gid, uint
     }
 
     while (true) {
-        if (!ReadFdExactly(s, &msg.data, sizeof(msg.data))) goto fail;
+        if (!ReadFdExactly(s.rfd, &msg.data, sizeof(msg.data))) goto fail;
 
         if (msg.data.id != ID_DATA) {
             if (msg.data.id == ID_DONE) {
@@ -240,7 +247,7 @@ static bool handle_send_file(int s, const char* path, uid_t uid, gid_t gid, uint
             goto abort;
         }
 
-        if (!ReadFdExactly(s, &buffer[0], msg.data.size)) goto abort;
+        if (!ReadFdExactly(s.rfd, &buffer[0], msg.data.size)) goto abort;
 
         if (!WriteFdExactly(fd, &buffer[0], msg.data.size)) {
             SendSyncFailErrno(s, "write failed");
@@ -257,7 +264,7 @@ static bool handle_send_file(int s, const char* path, uid_t uid, gid_t gid, uint
 
     msg.status.id = ID_OKAY;
     msg.status.msglen = 0;
-    return WriteFdExactly(s, &msg.status, sizeof(msg.status));
+    return WriteFdExactly(s.wfd, &msg.status, sizeof(msg.status));
 
 fail:
     // If there's a problem on the device, we'll send an ID_FAIL message and
@@ -267,7 +274,7 @@ fail:
     // reading and throwing away ID_DATA packets until the other side notices
     // that we've reported an error.
     while (true) {
-        if (!ReadFdExactly(s, &msg.data, sizeof(msg.data))) goto fail;
+        if (!ReadFdExactly(s.rfd, &msg.data, sizeof(msg.data))) goto fail;
 
         if (msg.data.id == ID_DONE) {
             goto abort;
@@ -285,7 +292,7 @@ fail:
             goto abort;
         }
 
-        if (!ReadFdExactly(s, &buffer[0], msg.data.size)) goto abort;
+        if (!ReadFdExactly(s.rfd, &buffer[0], msg.data.size)) goto abort;
     }
 
 abort:
@@ -295,14 +302,14 @@ abort:
 }
 
 #if defined(_WIN32)
-extern bool handle_send_link(int s, const std::string& path, std::vector<char>& buffer) __attribute__((error("no symlinks on Windows")));
+extern bool handle_send_link(sync_fd s, const std::string& path, std::vector<char>& buffer) __attribute__((error("no symlinks on Windows")));
 #else
-static bool handle_send_link(int s, const std::string& path, std::vector<char>& buffer) {
+static bool handle_send_link(sync_fd s, const std::string& path, std::vector<char>& buffer) {
     syncmsg msg;
     unsigned int len;
     int ret;
 
-    if (!ReadFdExactly(s, &msg.data, sizeof(msg.data))) return false;
+    if (!ReadFdExactly(s.rfd, &msg.data, sizeof(msg.data))) return false;
 
     if (msg.data.id != ID_DATA) {
         SendSyncFail(s, "invalid data message: expected ID_DATA");
@@ -314,7 +321,7 @@ static bool handle_send_link(int s, const std::string& path, std::vector<char>& 
         SendSyncFail(s, "oversize data message");
         return false;
     }
-    if (!ReadFdExactly(s, &buffer[0], len)) return false;
+    if (!ReadFdExactly(s.rfd, &buffer[0], len)) return false;
 
     ret = symlink(&buffer[0], path.c_str());
     if (ret && errno == ENOENT) {
@@ -329,12 +336,12 @@ static bool handle_send_link(int s, const std::string& path, std::vector<char>& 
         return false;
     }
 
-    if (!ReadFdExactly(s, &msg.data, sizeof(msg.data))) return false;
+    if (!ReadFdExactly(s.rfd, &msg.data, sizeof(msg.data))) return false;
 
     if (msg.data.id == ID_DONE) {
         msg.status.id = ID_OKAY;
         msg.status.msglen = 0;
-        if (!WriteFdExactly(s, &msg.status, sizeof(msg.status))) return false;
+        if (!WriteFdExactly(s.wfd, &msg.status, sizeof(msg.status))) return false;
     } else {
         SendSyncFail(s, "invalid data message: expected ID_DONE");
         return false;
@@ -344,7 +351,7 @@ static bool handle_send_link(int s, const std::string& path, std::vector<char>& 
 }
 #endif
 
-static bool do_send(int s, const std::string& spec, std::vector<char>& buffer) {
+static bool do_send(sync_fd s, const std::string& spec, std::vector<char>& buffer) {
     // 'spec' is of the form "/some/path,0755". Break it up.
     size_t comma = spec.find_last_of(',');
     if (comma == std::string::npos) {
@@ -390,7 +397,7 @@ static bool do_send(int s, const std::string& spec, std::vector<char>& buffer) {
     return handle_send_file(s, path.c_str(), uid, gid, capabilities, mode, buffer, do_unlink);
 }
 
-static bool do_recv(int s, const char* path, std::vector<char>& buffer) {
+static bool do_recv(sync_fd s, const char* path, std::vector<char>& buffer) {
     __android_log_security_bswrite(SEC_TAG_ADB_RECV_FILE, path);
 
     int fd = adb_open(path, O_RDONLY | O_CLOEXEC);
@@ -410,7 +417,7 @@ static bool do_recv(int s, const char* path, std::vector<char>& buffer) {
             return false;
         }
         msg.data.size = r;
-        if (!WriteFdExactly(s, &msg.data, sizeof(msg.data)) || !WriteFdExactly(s, &buffer[0], r)) {
+        if (!WriteFdExactly(s.wfd, &msg.data, sizeof(msg.data)) || !WriteFdExactly(s.wfd, &buffer[0], r)) {
             adb_close(fd);
             return false;
         }
@@ -420,25 +427,25 @@ static bool do_recv(int s, const char* path, std::vector<char>& buffer) {
 
     msg.data.id = ID_DONE;
     msg.data.size = 0;
-    return WriteFdExactly(s, &msg.data, sizeof(msg.data));
+    return WriteFdExactly(s.wfd, &msg.data, sizeof(msg.data));
 }
 
-static bool handle_sync_command(int fd, std::vector<char>& buffer) {
+static bool handle_sync_command(sync_fd s, std::vector<char>& buffer) {
     D("sync: waiting for request");
 
     SyncRequest request;
-    if (!ReadFdExactly(fd, &request, sizeof(request))) {
-        SendSyncFail(fd, "command read failure");
+    if (!ReadFdExactly(s.rfd, &request, sizeof(request))) {
+        SendSyncFail(s, "command read failure");
         return false;
     }
     size_t path_length = request.path_length;
     if (path_length > 1024) {
-        SendSyncFail(fd, "path too long");
+        SendSyncFail(s, "path too long");
         return false;
     }
     char name[1025];
-    if (!ReadFdExactly(fd, name, path_length)) {
-        SendSyncFail(fd, "filename read failure");
+    if (!ReadFdExactly(s.rfd, name, path_length)) {
+        SendSyncFail(s, "filename read failure");
         return false;
     }
     name[path_length] = 0;
@@ -448,21 +455,21 @@ static bool handle_sync_command(int fd, std::vector<char>& buffer) {
 
     switch (request.id) {
       case ID_STAT:
-        if (!do_stat(fd, name)) return false;
+        if (!do_stat(s, name)) return false;
         break;
       case ID_LIST:
-        if (!do_list(fd, name)) return false;
+        if (!do_list(s, name)) return false;
         break;
       case ID_SEND:
-        if (!do_send(fd, name, buffer)) return false;
+        if (!do_send(s, name, buffer)) return false;
         break;
       case ID_RECV:
-        if (!do_recv(fd, name, buffer)) return false;
+        if (!do_recv(s, name, buffer)) return false;
         break;
       case ID_QUIT:
         return false;
       default:
-        SendSyncFail(fd, android::base::StringPrintf("unknown command '%.4s' (%08x)",
+        SendSyncFail(s, android::base::StringPrintf("unknown command '%.4s' (%08x)",
                                                      id, request.id));
         return false;
     }
@@ -470,12 +477,13 @@ static bool handle_sync_command(int fd, std::vector<char>& buffer) {
     return true;
 }
 
-void file_sync_service(int fd, void* cookie) {
+void file_sync_service(adb_channel ch, void* cookie) {
     std::vector<char> buffer(SYNC_DATA_MAX);
 
-    while (handle_sync_command(fd, buffer)) {
+    sync_fd s = {ch.read_fd, ch.write_fd >= 0 ? ch.write_fd : ch.read_fd};
+    while (handle_sync_command(s, buffer)) {
     }
 
     D("sync: done");
-    adb_close(fd);
+    adb_channel_close(&ch);
 }

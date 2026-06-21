@@ -54,8 +54,11 @@ int SHELL_EXIT_NOTIFY_FD = -1;
 struct PollNode {
   fdevent* fde;
   adb_pollfd pollfd;
+  // Second pollfd for the write end when it is a distinct fd (pipe pair).
+  bool has_write_fd;
+  adb_pollfd write_pollfd;
 
-  explicit PollNode(fdevent* fde) : fde(fde) {
+  explicit PollNode(fdevent* fde) : fde(fde), has_write_fd(false) {
       memset(&pollfd, 0, sizeof(pollfd));
       pollfd.fd = fde->fd;
 
@@ -64,12 +67,24 @@ struct PollNode {
       // Then we can avoid leaving many sockets in CLOSE_WAIT state. See http://b/23314034.
       pollfd.events = POLLRDHUP;
 #endif
+
+      if (fde->write_fd >= 0 && fde->write_fd != fde->fd) {
+          has_write_fd = true;
+          memset(&write_pollfd, 0, sizeof(write_pollfd));
+          write_pollfd.fd = fde->write_fd;
+#if defined(__linux__)
+          write_pollfd.events = POLLRDHUP;
+#endif
+      }
   }
 };
 
 // All operations to fdevent should happen only in the main thread.
 // That's why we don't need a lock for fdevent.
 static auto& g_poll_node_map = *new std::unordered_map<int, PollNode>();
+// Maps a distinct write_fd back to the read_fd that keys g_poll_node_map,
+// so fdevent_process() can redispatch revents from the write pollfd.
+static auto& g_write_fd_map = *new std::unordered_map<int, int>();
 static auto& g_pending_list = *new std::list<fdevent*>();
 static std::atomic<bool> terminate_loop(false);
 static bool main_thread_valid;
@@ -109,7 +124,7 @@ static std::string dump_fde(const fdevent* fde) {
     if (fde->state & FDE_DONT_CLOSE) {
         state += "D";
     }
-    return android::base::StringPrintf("(fdevent %d %s)", fde->fd, state.c_str());
+    return android::base::StringPrintf("(fdevent %d/%d %s)", fde->fd, fde->write_fd, state.c_str());
 }
 
 fdevent *fdevent_create(int fd, fd_func func, void *arg)
@@ -134,21 +149,36 @@ void fdevent_destroy(fdevent *fde)
 }
 
 void fdevent_install(fdevent* fde, int fd, fd_func func, void* arg) {
+    fdevent_install(fde, fd, -1, func, arg);
+}
+
+void fdevent_install(fdevent* fde, int read_fd, int write_fd,
+                     fd_func func, void* arg) {
     check_main_thread();
-    CHECK_GE(fd, 0);
+    CHECK_GE(read_fd, 0);
     memset(fde, 0, sizeof(fdevent));
     fde->state = FDE_ACTIVE;
-    fde->fd = fd;
+    fde->fd = read_fd;
+    fde->write_fd = write_fd;
     fde->func = func;
     fde->arg = arg;
-    if (!set_file_block_mode(fd, false)) {
+    if (!set_file_block_mode(read_fd, false)) {
         // Here is not proper to handle the error. If it fails here, some error is
         // likely to be detected by poll(), then we can let the callback function
         // to handle it.
-        LOG(ERROR) << "failed to set non-blocking mode for fd " << fd;
+        LOG(ERROR) << "failed to set non-blocking mode for fd " << read_fd;
+    }
+    if (write_fd >= 0 && write_fd != read_fd) {
+        if (!set_file_block_mode(write_fd, false)) {
+            LOG(ERROR) << "failed to set non-blocking mode for write fd " << write_fd;
+        }
     }
     auto pair = g_poll_node_map.emplace(fde->fd, PollNode(fde));
-    CHECK(pair.second) << "install existing fd " << fd;
+    CHECK(pair.second) << "install existing fd " << fde->fd;
+    if (write_fd >= 0 && write_fd != read_fd) {
+        auto wpair = g_write_fd_map.emplace(write_fd, fde->fd);
+        CHECK(wpair.second) << "install existing write fd " << write_fd;
+    }
     D("fdevent_install %s", dump_fde(fde).c_str());
 }
 
@@ -157,10 +187,17 @@ void fdevent_remove(fdevent* fde) {
     D("fdevent_remove %s", dump_fde(fde).c_str());
     if (fde->state & FDE_ACTIVE) {
         g_poll_node_map.erase(fde->fd);
+        if (fde->write_fd >= 0 && fde->write_fd != fde->fd) {
+            g_write_fd_map.erase(fde->write_fd);
+        }
         if (fde->state & FDE_PENDING) {
             g_pending_list.remove(fde);
         }
         if (!(fde->state & FDE_DONT_CLOSE)) {
+            if (fde->write_fd >= 0 && fde->write_fd != fde->fd) {
+                adb_close(fde->write_fd);
+                fde->write_fd = -1;
+            }
             adb_close(fde->fd);
             fde->fd = -1;
         }
@@ -180,9 +217,17 @@ static void fdevent_update(fdevent* fde, unsigned events) {
     }
 
     if (events & FDE_WRITE) {
-        node.pollfd.events |= POLLOUT;
+        if (node.has_write_fd) {
+            node.write_pollfd.events |= POLLOUT;
+        } else {
+            node.pollfd.events |= POLLOUT;
+        }
     } else {
-        node.pollfd.events &= ~POLLOUT;
+        if (node.has_write_fd) {
+            node.write_pollfd.events &= ~POLLOUT;
+        } else {
+            node.pollfd.events &= ~POLLOUT;
+        }
     }
     fde->state = (fde->state & FDE_STATEMASK) | events;
 }
@@ -236,6 +281,9 @@ static void fdevent_process() {
     std::vector<adb_pollfd> pollfds;
     for (const auto& pair : g_poll_node_map) {
         pollfds.push_back(pair.second.pollfd);
+        if (pair.second.has_write_fd) {
+            pollfds.push_back(pair.second.write_pollfd);
+        }
     }
     CHECK_GT(pollfds.size(), 0u);
     D("poll(), pollfds = %s", dump_pollfds(pollfds).c_str());
@@ -266,10 +314,21 @@ static void fdevent_process() {
         }
 #endif
         if (events != 0) {
-            auto it = g_poll_node_map.find(pollfd.fd);
-            CHECK(it != g_poll_node_map.end());
-            fdevent* fde = it->second.fde;
-            CHECK_EQ(fde->fd, pollfd.fd);
+            // Resolve the fdevent: the pollfd.fd is either the read_fd (the
+            // primary g_poll_node_map key) or the distinct write_fd.
+            fdevent* fde = nullptr;
+            auto wit = g_write_fd_map.find(pollfd.fd);
+            if (wit != g_write_fd_map.end()) {
+                auto it = g_poll_node_map.find(wit->second);
+                CHECK(it != g_poll_node_map.end());
+                fde = it->second.fde;
+                CHECK_EQ(fde->write_fd, pollfd.fd);
+            } else {
+                auto it = g_poll_node_map.find(pollfd.fd);
+                CHECK(it != g_poll_node_map.end());
+                fde = it->second.fde;
+                CHECK_EQ(fde->fd, pollfd.fd);
+            }
             fde->events |= events;
             D("%s got events %x", dump_fde(fde).c_str(), events);
             fde->state |= FDE_PENDING;
@@ -346,13 +405,13 @@ void fdevent_subproc_setup()
 {
     int s[2];
 
-    if(adb_socketpair(s)) {
-        PLOG(FATAL) << "cannot create shell-exit socket-pair";
+    if(adb_pipe(s)) {
+        PLOG(FATAL) << "cannot create shell-exit pipe";
     }
-    D("fdevent_subproc: socket pair (%d, %d)", s[0], s[1]);
+    D("fdevent_subproc: pipe (%d, %d)", s[0], s[1]);
 
-    SHELL_EXIT_NOTIFY_FD = s[0];
-    fdevent *fde = fdevent_create(s[1], fdevent_subproc_event_func, NULL);
+    SHELL_EXIT_NOTIFY_FD = s[1];  // write end
+    fdevent *fde = fdevent_create(s[0], fdevent_subproc_event_func, NULL);  // read end
     CHECK(fde != nullptr) << "cannot create fdevent for shell-exit handler";
     fdevent_add(fde, FDE_READ);
 }
@@ -392,6 +451,7 @@ size_t fdevent_installed_count() {
 
 void fdevent_reset() {
     g_poll_node_map.clear();
+    g_write_fd_map.clear();
     g_pending_list.clear();
     main_thread_valid = false;
     terminate_loop = false;

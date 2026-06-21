@@ -813,6 +813,65 @@ static __inline__ int  adb_socketpair( int  sv[2] )
 #undef   socketpair
 #define  socketpair   ___xxx_socketpair
 
+// A bidirectional channel built from two uni-directional pipes.
+//   read_fd  : the end to read from (data arriving from the peer's write_fd)
+//   write_fd : the end to write to (data going to the peer's read_fd)
+// For a real socket (single bidirectional fd) set read_fd == write_fd == fd
+// and the helpers below treat write_fd == -1 (or == read_fd) as single-fd mode.
+struct adb_channel {
+    int read_fd;
+    int write_fd;
+};
+
+// Create a uni-directional pipe. fds[0] is the read end, fds[1] the write end.
+static __inline__ int adb_pipe(int fds[2]) {
+    if (pipe(fds) < 0)
+        return -1;
+    close_on_exec(fds[0]);
+    close_on_exec(fds[1]);
+    return 0;
+}
+
+// Create a bidirectional channel pair from two pipes.
+//   a->read_fd / a->write_fd  : end A (reads from p2[0], writes to p1[1])
+//   b->read_fd / b->write_fd  : end B (reads from p1[0], writes to p2[1])
+// Data written to a->write_fd is readable from b->read_fd, and vice versa.
+// Returns 0 on success, -1 on error (all fds closed on error).
+static __inline__ int adb_channel_pair(adb_channel* a, adb_channel* b) {
+    int p1[2], p2[2];                 // p1: A->B, p2: B->A
+    if (pipe(p1) < 0)
+        return -1;
+    close_on_exec(p1[0]);
+    close_on_exec(p1[1]);
+    if (pipe(p2) < 0) {
+        adb_close(p1[0]);
+        adb_close(p1[1]);
+        return -1;
+    }
+    close_on_exec(p2[0]);
+    close_on_exec(p2[1]);
+    a->read_fd  = p2[0];  a->write_fd = p1[1];
+    b->read_fd  = p1[0];  b->write_fd = p2[1];
+    return 0;
+}
+
+// Close both ends of an adb_channel. Ignores -1 members.
+// Safe when read_fd == write_fd (single-fd mode): the write end is closed
+// before the read end to avoid double-close.
+static __inline__ void adb_channel_close(adb_channel* ch) {
+    if (ch->write_fd >= 0 && ch->write_fd != ch->read_fd) {
+        adb_close(ch->write_fd);
+    }
+    ch->write_fd = -1;
+    if (ch->read_fd >= 0) {
+        adb_close(ch->read_fd);
+    }
+    ch->read_fd = -1;
+}
+
+#undef   pipe
+#define  pipe   ___xxx_pipe
+
 typedef struct pollfd adb_pollfd;
 static __inline__ int adb_poll(adb_pollfd* fds, size_t nfds, int timeout) {
     return TEMP_FAILURE_RETRY(poll(fds, nfds, timeout));

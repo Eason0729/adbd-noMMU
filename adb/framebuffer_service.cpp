@@ -56,7 +56,7 @@ struct fbinfo {
     unsigned int alpha_length;
 } __attribute__((packed));
 
-void framebuffer_service(int fd, void *cookie)
+void framebuffer_service(adb_channel ch, void *cookie)
 {
     struct fbinfo fbinfo;
     unsigned int i, bsize;
@@ -65,6 +65,7 @@ void framebuffer_service(int fd, void *cookie)
     int w, h, f;
     int fds[2];
     pid_t pid;
+    int wfd = ch.write_fd >= 0 ? ch.write_fd : ch.read_fd;
 
     if (pipe2(fds, O_CLOEXEC) < 0) goto pipefail;
 
@@ -167,7 +168,7 @@ void framebuffer_service(int fd, void *cookie)
     }
 
     /* write header */
-    if(!WriteFdExactly(fd, &fbinfo, sizeof(fbinfo))) goto done;
+    if(!WriteFdExactly(wfd, &fbinfo, sizeof(fbinfo))) goto done;
 
     /* write data */
     for(i = 0; i < fbinfo.size; i += bsize) {
@@ -175,7 +176,7 @@ void framebuffer_service(int fd, void *cookie)
       if (i + bsize > fbinfo.size)
         bsize = fbinfo.size - i;
       if(!ReadFdExactly(fd_screencap, buf, bsize)) goto done;
-      if(!WriteFdExactly(fd, buf, bsize)) goto done;
+      if(!WriteFdExactly(wfd, buf, bsize)) goto done;
     }
 
 done:
@@ -183,7 +184,7 @@ done:
 
     TEMP_FAILURE_RETRY(waitpid(pid, NULL, 0));
 pipefail:
-    adb_close(fd);
+    adb_channel_close(&ch);
 }
 
 #endif /* !ADB_NOMMU */

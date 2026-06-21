@@ -173,7 +173,7 @@ void send_packet(apacket *p, atransport *t)
         fatal_errno("Transport is null");
     }
 
-    if(write_packet(t->transport_socket, t->serial, &p)){
+    if(write_packet(t->transport_socket.write_fd, t->serial, &p)){
         fatal_errno("cannot enqueue packet on transport socket");
     }
 }
@@ -197,14 +197,14 @@ static void read_transport_thread(void* _t) {
 
     adb_thread_setname(android::base::StringPrintf("<-%s",
                                                    (t->serial != nullptr ? t->serial : "transport")));
-    D("%s: starting read_transport thread on fd %d, SYNC online (%d)",
-       t->serial, t->fd, t->sync_token + 1);
+    D("%s: starting read_transport thread on fd %d/%d, SYNC online (%d)",
+       t->serial, t->fd.read_fd, t->fd.write_fd, t->sync_token + 1);
     p = get_apacket();
     p->msg.command = A_SYNC;
     p->msg.arg0 = 1;
     p->msg.arg1 = ++(t->sync_token);
     p->msg.magic = A_SYNC ^ 0xffffffff;
-    if(write_packet(t->fd, t->serial, &p)) {
+    if(write_packet(t->fd.write_fd, t->serial, &p)) {
         put_apacket(p);
         D("%s: failed to write SYNC packet", t->serial);
         goto oops;
@@ -217,7 +217,7 @@ static void read_transport_thread(void* _t) {
         if(t->read_from_remote(p, t) == 0){
             D("%s: received remote packet, sending to transport",
               t->serial);
-            if(write_packet(t->fd, t->serial, &p)){
+            if(write_packet(t->fd.write_fd, t->serial, &p)){
                 put_apacket(p);
                 D("%s: failed to write apacket to transport", t->serial);
                 goto oops;
@@ -235,7 +235,7 @@ static void read_transport_thread(void* _t) {
     p->msg.arg0 = 0;
     p->msg.arg1 = 0;
     p->msg.magic = A_SYNC ^ 0xffffffff;
-    if(write_packet(t->fd, t->serial, &p)) {
+    if(write_packet(t->fd.write_fd, t->serial, &p)) {
         put_apacket(p);
         D("%s: failed to write SYNC apacket to transport", t->serial);
     }
@@ -256,12 +256,12 @@ static void write_transport_thread(void* _t) {
     adb_thread_setname(android::base::StringPrintf("->%s",
                                                    (t->serial != nullptr ? t->serial : "transport")));
     D("%s: starting write_transport thread, reading from fd %d",
-       t->serial, t->fd);
+       t->serial, t->fd.read_fd);
 
     for(;;){
-        if(read_packet(t->fd, t->serial, &p)) {
+        if(read_packet(t->fd.read_fd, t->serial, &p)) {
             D("%s: failed to read apacket from transport on fd %d",
-               t->serial, t->fd );
+               t->serial, t->fd.read_fd );
             break;
         }
         if(p->msg.command == A_SYNC){
@@ -290,7 +290,7 @@ static void write_transport_thread(void* _t) {
         put_apacket(p);
     }
 
-    D("%s: write_transport thread is exiting, fd %d", t->serial, t->fd);
+    D("%s: write_transport thread is exiting, fd %d/%d", t->serial, t->fd.read_fd, t->fd.write_fd);
     kick_transport(t);
     transport_unref(t);
 }
@@ -481,7 +481,6 @@ transport_write_action(int  fd, struct tmsg*  m)
 static void transport_registration_func(int _fd, unsigned ev, void *data)
 {
     tmsg m;
-    int s[2];
     atransport *t;
 
     if(!(ev & FDE_READ)) {
@@ -495,13 +494,14 @@ static void transport_registration_func(int _fd, unsigned ev, void *data)
     t = m.transport;
 
     if (m.action == 0) {
-        D("transport: %s removing and free'ing %d", t->serial, t->transport_socket);
+        D("transport: %s removing and free'ing %d/%d", t->serial,
+          t->transport_socket.read_fd, t->transport_socket.write_fd);
 
             /* IMPORTANT: the remove closes one half of the
-            ** socket pair.  The close closes the other half.
+            ** channel pair.  The close closes the other half.
             */
         fdevent_remove(&(t->transport_fde));
-        adb_close(t->fd);
+        adb_channel_close(&t->fd);
 
         adb_mutex_lock(&transport_lock);
         transport_list.remove(t);
@@ -529,17 +529,20 @@ static void transport_registration_func(int _fd, unsigned ev, void *data)
         /* initial references are the two threads */
         t->ref_count = 2;
 
-        if (adb_socketpair(s)) {
-            fatal_errno("cannot open transport socketpair");
+        adb_channel a, b;
+        if (adb_channel_pair(&a, &b) < 0) {
+            fatal_errno("cannot open transport channel pair");
         }
 
-        D("transport: %s socketpair: (%d,%d) starting", t->serial, s[0], s[1]);
+        D("transport: %s channel pair: main(%d/%d) threads(%d/%d) starting",
+          t->serial, a.read_fd, a.write_fd, b.read_fd, b.write_fd);
 
-        t->transport_socket = s[0];
-        t->fd = s[1];
+        t->transport_socket = a;   // main thread end: read+write
+        t->fd = b;                  // worker threads end: read+write
 
         fdevent_install(&(t->transport_fde),
-                        t->transport_socket,
+                        t->transport_socket.read_fd,
+                        t->transport_socket.write_fd,
                         transport_socket_events,
                         t);
 
@@ -566,13 +569,13 @@ void init_transport_registration(void)
 {
     int s[2];
 
-    if(adb_socketpair(s)){
-        fatal_errno("cannot open transport registration socketpair");
+    if(adb_pipe(s)){
+        fatal_errno("cannot open transport registration pipe");
     }
-    D("socketpair: (%d,%d)", s[0], s[1]);
+    D("pipe: (%d,%d)", s[0], s[1]);
 
-    transport_registration_send = s[0];
-    transport_registration_recv = s[1];
+    transport_registration_send = s[1];  // write end
+    transport_registration_recv = s[0];  // read end
 
     fdevent_install(&transport_registration_fde,
                     transport_registration_recv,

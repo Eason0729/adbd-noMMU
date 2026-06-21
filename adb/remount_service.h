@@ -17,9 +17,9 @@
 #ifndef _REMOUNT_SERVICE_H_
 #define _REMOUNT_SERVICE_H_
 
-#include <string>
+#include "sysdeps.h"
 
 bool make_block_device_writable(const std::string&);
-void remount_service(int, void*);
+void remount_service(adb_channel, void*);
 
 #endif

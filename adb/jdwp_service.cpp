@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#if !ADB_HOST
+#if !ADB_HOST && !defined(ADB_NOMMU)
 
 #define TRACE_TAG JDWP
 
@@ -622,4 +622,4 @@ int init_jdwp(void) {
     return jdwp_control_init(&_jdwp_control, JDWP_CONTROL_NAME, JDWP_CONTROL_NAME_LEN);
 }
 
-#endif /* !ADB_HOST */
+#endif /* !ADB_HOST && !ADB_NOMMU */

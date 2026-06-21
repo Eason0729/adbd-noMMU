@@ -91,7 +91,7 @@ bool make_block_device_writable(const std::string& dev) {
     return result;
 }
 
-static bool remount_partition(int fd, const char* dir) {
+static bool remount_partition(int wfd, const char* dir) {
     if (!directory_exists(dir)) {
         return true;
     }
@@ -100,21 +100,22 @@ static bool remount_partition(int fd, const char* dir) {
         return true;
     }
     if (!make_block_device_writable(dev)) {
-        WriteFdFmt(fd, "remount of %s failed; couldn't make block device %s writable: %s\n",
-                   dir, dev.c_str(), strerror(errno));
+        WriteFdFmt(wfd, "remount of %s failed; couldn't make block device %s writable: %s\n",
+                  dir, dev.c_str(), strerror(errno));
         return false;
     }
     if (mount(dev.c_str(), dir, "none", MS_REMOUNT, nullptr) == -1) {
-        WriteFdFmt(fd, "remount of %s failed: %s\n", dir, strerror(errno));
+        WriteFdFmt(wfd, "remount of %s failed: %s\n", dir, strerror(errno));
         return false;
     }
     return true;
 }
 
-void remount_service(int fd, void* cookie) {
+void remount_service(adb_channel ch, void* cookie) {
+    int wfd = ch.write_fd >= 0 ? ch.write_fd : ch.read_fd;
     if (getuid() != 0) {
-        WriteFdExactly(fd, "Not running as root. Try \"adb root\" first.\n");
-        adb_close(fd);
+        WriteFdExactly(wfd, "Not running as root. Try \"adb root\" first.\n");
+        adb_channel_close(&ch);
         return;
     }
 
@@ -128,13 +129,13 @@ void remount_service(int fd, void* cookie) {
     if (system_verified || vendor_verified) {
         // Allow remount but warn of likely bad effects
         bool both = system_verified && vendor_verified;
-        WriteFdFmt(fd,
+        WriteFdFmt(wfd,
                    "dm_verity is enabled on the %s%s%s partition%s.\n",
                    system_verified ? "system" : "",
                    both ? " and " : "",
                    vendor_verified ? "vendor" : "",
                    both ? "s" : "");
-        WriteFdExactly(fd,
+        WriteFdExactly(wfd,
                        "Use \"adb disable-verity\" to disable verity.\n"
                        "If you do not, remount may succeed, however, you will still "
                        "not be able to write to these volumes.\n");
@@ -144,26 +145,27 @@ void remount_service(int fd, void* cookie) {
     property_get("ro.build.system_root_image", prop_buf, "");
     bool system_root = !strcmp(prop_buf, "true");
     if (system_root) {
-        success &= remount_partition(fd, "/");
+        success &= remount_partition(wfd, "/");
     } else {
-        success &= remount_partition(fd, "/system");
+        success &= remount_partition(wfd, "/system");
     }
-    success &= remount_partition(fd, "/vendor");
-    success &= remount_partition(fd, "/oem");
+    success &= remount_partition(wfd, "/vendor");
+    success &= remount_partition(wfd, "/oem");
 
-    WriteFdExactly(fd, success ? "remount succeeded\n" : "remount failed\n");
+    WriteFdExactly(wfd, success ? "remount succeeded\n" : "remount failed\n");
 
-    adb_close(fd);
+    adb_channel_close(&ch);
 }
 #else
 bool make_block_device_writable(const std::string&)
 {
     return false;
 }
-void remount_service(int fd, void* cookie)
+void remount_service(adb_channel ch, void* cookie)
 {
-    WriteFdExactly(fd, "remount failed, not implemented\n");
-    adb_close(fd);
+    int wfd = ch.write_fd >= 0 ? ch.write_fd : ch.read_fd;
+    WriteFdExactly(wfd, "remount failed, not implemented\n");
+    adb_channel_close(&ch);
 }
 #endif /* !ADB_NON_ANDROID */
 
