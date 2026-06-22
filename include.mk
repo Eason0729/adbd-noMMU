@@ -8,8 +8,10 @@ sbindir ?= $(exec_prefix)/sbin
 datadir ?= $(prefix)/share
 mandir ?= $(datadir)/man
 sysconfdir ?= $(prefix)/etc
-OPT_CFLAGS ?= -O2 -g
-OPT_CXXFLAGS ?= -O2 -g
+OPT_CFLAGS ?= -O2
+OPT_CXXFLAGS ?= -O2
+export OPT_CFLAGS OPT_CXXFLAGS
+PIC_FLAGS ?= -fPIC
 ADB_NOMMU ?= 0
 CC ?= gcc
 CXX ?= g++

@@ -39,7 +39,7 @@ CXXFLAGS += -DPROP_NAME_MAX=32 -DPROP_VALUE_MAX=92
 all: $(LOCAL_MODULE)
 
 %.o: %.cpp
-	$(CXX) -g -c -fPIC $(CXXFLAGS) $(LFLAGS) $< -o $@
+	$(CXX) -c $(PIC_FLAGS) $(CXXFLAGS) $(LFLAGS) $< -o $@
 
 $(LOCAL_MODULE): $(OBJS)
 	ar rcs $@ $?
@@ -47,4 +47,3 @@ $(LOCAL_MODULE): $(OBJS)
 
 clean:
 	rm -f $(LOCAL_MODULE) *.o
-

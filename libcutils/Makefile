@@ -59,10 +59,10 @@ CXXFLAGS = $(OPT_CXXFLAGS) $(EXTRA_CFLAGS)
 all: $(LOCAL_MODULE)
 
 %.o: %.cpp
-	$(CXX) -c -fPIC $(CXXFLAGS) $(LFLAGS) $< -o $@
+	$(CXX) -c $(PIC_FLAGS) $(CXXFLAGS) $(LFLAGS) $< -o $@
 
 %.o: %.c
-	$(CC) -c -fPIC $(CFLAGS) $(LFLAGS) $< -o $@
+	$(CC) -c $(PIC_FLAGS) $(CFLAGS) $(LFLAGS) $< -o $@
 
 $(LOCAL_MODULE): $(OBJS)
 	ar rcs $@ $?

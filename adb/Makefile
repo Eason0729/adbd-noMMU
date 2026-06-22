@@ -72,15 +72,15 @@ CXXFLAGS = $(OPT_CXXFLAGS) -std=c++14 $(LOCAL_CFLAGS) $(LOCAL_INCLUDES)
 CFLAGS= $(OPT_CFLAGS) $(LOCAL_CFLAGS) $(LOCAL_INCLUDES)
 
 %.o: %.cpp
-	$(CXX) -g -c -fPIC $(CXXFLAGS) $(LFLAGS) $< -o $@
+	$(CXX) -c $(PIC_FLAGS) $(CXXFLAGS) $(LFLAGS) $< -o $@
 
 %.o: %.c
-	$(CC) -g -c -fPIC $(CFLAGS) $(LFLAGS) $< -o $@
+	$(CC) -c $(PIC_FLAGS) $(CFLAGS) $(LFLAGS) $< -o $@
 
 all: $(LOCAL_MODULE)
 
 $(LOCAL_MODULE): $(OBJS)
-	$(CXX) -fPIC $(CXXFLAGS) $(LFLAGS) $^ \
+	$(CXX) $(PIC_FLAGS) $(CXXFLAGS) $(LFLAGS) $^ \
 		../libcutils/*.o ../base/*.o ../libcrypto_utils/*.o \
 		-lpthread -lresolv -o $@
 
