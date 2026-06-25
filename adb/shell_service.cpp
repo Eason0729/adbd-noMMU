@@ -279,7 +279,16 @@ Subprocess::~Subprocess() {
 bool Subprocess::ForkAndExec(std::string* error) {
     unique_fd child_stdin_read, child_stdout_write, child_stderr_write;
     unique_fd parent_error_sfd, child_error_sfd;
+#if defined(ADB_NOMMU)
+    ScratchBuf pts_name_buf(PATH_MAX);
+    char* pts_name = pts_name_buf.get();
+    if (!pts_name_buf.valid()) {
+        *error = "failed to allocate pts_name buffer";
+        return false;
+    }
+#else
     char pts_name[PATH_MAX];
+#endif
 
     if (command_.empty()) {
         __android_log_security_bswrite(SEC_TAG_ADB_SHELL_INTERACTIVE, "");

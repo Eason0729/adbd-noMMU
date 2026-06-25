@@ -362,12 +362,25 @@ static void local_socket_event_func(int fd, unsigned ev, void* _s) {
                 return;
             }
 
-            if (r > 0) {
+            /* enqueue may have freed s via the close cascade.
+             * Check if our socket ID is still registered. */
+            bool s_alive;
+            {
+                std::lock_guard<std::recursive_mutex> lock(local_socket_list_lock);
+                asocket* found = find_local_socket(saved_id, 0);
+                s_alive = (found == s);
+            }
+
+            if (r > 0 && s_alive) {
                 /* if the remote cannot accept further events,
                 ** we disable notification of READs.  They'll
                 ** be enabled again when we get a call to ready()
                 */
                 fdevent_del(&s->fde, FDE_READ);
+            }
+
+            if (!s_alive) {
+                return;
             }
         }
         /* Don't allow a forced eof if data is still there */
@@ -692,7 +705,8 @@ static int smart_socket_enqueue(asocket* s, apacket* p) {
     }
 
     len = unhex(p->data, 4);
-    if ((len < 1) || (len > MAX_PAYLOAD_V1)) {
+    // Reserve 1 byte for null terminator at data[len + 4].
+    if ((len < 1) || (len > MAX_PAYLOAD_V1 - 5)) {
         D("SS(%d): bad size (%d)", s->id, len);
         goto fail;
     }
