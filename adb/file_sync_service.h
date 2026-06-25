@@ -17,8 +17,11 @@
 #ifndef _FILE_SYNC_SERVICE_H_
 #define _FILE_SYNC_SERVICE_H_
 
+#include <stdint.h>
 #include <string>
 #include <vector>
+
+#include "sysdeps.h"
 
 #define MKID(a, b, c, d) ((a) | ((b) << 8) | ((c) << 16) | ((d) << 24))
 
