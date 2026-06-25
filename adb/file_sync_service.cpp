@@ -242,9 +242,8 @@ static bool handle_send_file(sync_fd s, const char* path, uid_t uid, gid_t gid, 
             goto abort;
         }
 
-        if (msg.data.size > buffer.size()) {  // TODO: resize buffer?
-            SendSyncFail(s, "oversize data message");
-            goto abort;
+        if (msg.data.size > buffer.size()) {
+            buffer.resize(msg.data.size);
         }
 
         if (!ReadFdExactly(s.rfd, &buffer[0], msg.data.size)) goto abort;
@@ -317,9 +316,8 @@ static bool handle_send_link(sync_fd s, const std::string& path, std::vector<cha
     }
 
     len = msg.data.size;
-    if (len > buffer.size()) { // TODO: resize buffer?
-        SendSyncFail(s, "oversize data message");
-        return false;
+    if (len > buffer.size()) {
+        buffer.resize(len);
     }
     if (!ReadFdExactly(s.rfd, &buffer[0], len)) return false;
 
