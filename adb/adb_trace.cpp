@@ -30,11 +30,14 @@
 #include <cutils/properties.h>
 #endif
 
-#if !defined(ADB_HOST) && defined(__ANDROID__)
+#if !ADB_HOST
 const char* adb_device_banner = "device";
-static android::base::LogdLogger gLogdLogger;
 #else
 const char* adb_device_banner = "host";
+#endif
+
+#if !ADB_HOST && defined(__ANDROID__)
+static android::base::LogdLogger gLogdLogger;
 #endif
 
 void AdbLogger(android::base::LogId id, android::base::LogSeverity severity,
