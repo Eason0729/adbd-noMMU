@@ -196,6 +196,7 @@ class Subprocess {
         return rfd;
     }
     adb_channel ReleaseLocalSocketChannel() {
+        local_socket_read_fd_for_notify_ = local_socket_read_sfd_.get();
         adb_channel ch = {local_socket_read_sfd_.release(),
                           local_socket_write_sfd_.release()};
         return ch;
@@ -248,6 +249,7 @@ class Subprocess {
     unique_fd protocol_read_sfd_, protocol_write_sfd_;
     std::unique_ptr<ShellProtocol> input_, output_;
     size_t input_bytes_left_ = 0;
+    int local_socket_read_fd_for_notify_ = -1;
 
     DISALLOW_COPY_AND_ASSIGN(Subprocess);
 };
@@ -874,7 +876,7 @@ void Subprocess::WaitForExit() {
 
     // Pass the local socket read FD to the shell cleanup fdevent.
     if (SHELL_EXIT_NOTIFY_FD >= 0) {
-        int fd = local_socket_read_sfd_;
+        int fd = local_socket_read_fd_for_notify_;
         if (WriteFdExactly(SHELL_EXIT_NOTIFY_FD, &fd, sizeof(fd))) {
             D("passed fd %d to SHELL_EXIT_NOTIFY_FD (%d) for pid %d",
               fd, SHELL_EXIT_NOTIFY_FD, pid_);
