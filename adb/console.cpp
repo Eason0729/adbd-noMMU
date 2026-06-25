@@ -14,19 +14,17 @@
  * limitations under the License.
  */
 
-#include "sysdeps.h"
-
-#include <stdio.h>
-
 #include <android-base/file.h>
 #include <android-base/logging.h>
 #include <android-base/strings.h>
 #include <cutils/sockets.h>
+#include <stdio.h>
 
 #include "adb.h"
 #include "adb_client.h"
 #include "adb_io.h"
 #include "adb_utils.h"
+#include "sysdeps.h"
 
 // Return the console authentication command for the emulator, if needed
 static std::string adb_construct_auth_command() {
@@ -38,8 +36,7 @@ static std::string adb_construct_auth_command() {
 
     // read the token
     std::string token;
-    if (!android::base::ReadFileToString(auth_token_path, &token)
-        || token.empty()) {
+    if (!android::base::ReadFileToString(auth_token_path, &token) || token.empty()) {
         // we either can't read the file, or it doesn't exist, or it's empty -
         // either way we won't add any authentication command.
         return {};
@@ -76,8 +73,7 @@ static int adb_get_emulator_console_port(const char* serial) {
     for (const auto& device : android::base::Split(devices, "\n")) {
         if (sscanf(device.c_str(), "emulator-%d", &port) == 1) {
             if (++emulator_count > 1) {
-                fprintf(
-                    stderr, "error: more than one emulator detected; use -s\n");
+                fprintf(stderr, "error: more than one emulator detected; use -s\n");
                 return -1;
             }
         }
@@ -100,8 +96,7 @@ static int connect_to_console(const char* serial) {
     std::string error;
     int fd = network_loopback_client(port, SOCK_STREAM, &error);
     if (fd == -1) {
-        fprintf(stderr, "error: could not connect to TCP port %d: %s\n", port,
-                error.c_str());
+        fprintf(stderr, "error: could not connect to TCP port %d: %s\n", port, error.c_str());
         return -1;
     }
     return fd;
@@ -123,8 +118,7 @@ int adb_send_emulator_command(int argc, const char** argv, const char* serial) {
     commands.append("quit\n");
 
     if (!WriteFdExactly(fd, commands)) {
-        fprintf(stderr, "error: cannot write to emulator: %s\n",
-                strerror(errno));
+        fprintf(stderr, "error: cannot write to emulator: %s\n", strerror(errno));
         adb_close(fd);
         return 1;
     }

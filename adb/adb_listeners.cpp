@@ -16,13 +16,11 @@
 
 #include "adb_listeners.h"
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <cutils/sockets.h>
-
 #include <android-base/stringprintf.h>
 #include <android-base/strings.h>
 #include <cutils/sockets.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 #include "sysdeps.h"
 #include "transport.h"
@@ -70,7 +68,7 @@ alistener::~alistener() {
 typedef std::list<std::unique_ptr<alistener>> ListenerList;
 static ListenerList& listener_list = *new ListenerList();
 
-static void ss_listener_event_func(int _fd, unsigned ev, void *_l) {
+static void ss_listener_event_func(int _fd, unsigned ev, void* _l) {
     if (ev & FDE_READ) {
         sockaddr_storage ss;
         sockaddr* addrp = reinterpret_cast<sockaddr*>(&ss);
@@ -91,10 +89,9 @@ static void ss_listener_event_func(int _fd, unsigned ev, void *_l) {
     }
 }
 
-static void listener_event_func(int _fd, unsigned ev, void* _l)
-{
+static void listener_event_func(int _fd, unsigned ev, void* _l) {
     alistener* listener = reinterpret_cast<alistener*>(_l);
-    asocket *s;
+    asocket* s;
 
     if (ev & FDE_READ) {
         sockaddr_storage ss;
@@ -167,8 +164,8 @@ int local_name_to_fd(alistener* listener, int* resolved_tcp_port, std::string* e
     }
 
 #endif
-    *error = android::base::StringPrintf("unknown local portname '%s'",
-                                         listener->local_name.c_str());
+    *error =
+        android::base::StringPrintf("unknown local portname '%s'", listener->local_name.c_str());
     return -1;
 }
 
@@ -217,7 +214,7 @@ InstallStatus install_listener(const std::string& local_name, const char* connec
     for (auto& l : listener_list) {
         if (local_name == l->local_name) {
             // Can't repurpose a smartsocket.
-            if(l->connect_to[0] == '*') {
+            if (l->connect_to[0] == '*') {
                 *error = "cannot repurpose smartsocket";
                 return INSTALL_STATUS_INTERNAL_ERROR;
             }
@@ -257,7 +254,7 @@ InstallStatus install_listener(const std::string& local_name, const char* connec
 
     if (transport) {
         listener->disconnect.opaque = listener.get();
-        listener->disconnect.func   = listener_disconnect;
+        listener->disconnect.func = listener_disconnect;
         transport->AddDisconnect(&listener->disconnect);
     }
 

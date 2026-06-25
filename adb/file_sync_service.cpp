@@ -16,7 +16,6 @@
 
 #define TRACE_TAG SYNC
 
-#include "sysdeps.h"
 #include "file_sync_service.h"
 
 #include <dirent.h>
@@ -26,10 +25,15 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+
+#include "sysdeps.h"
 #ifndef ADB_NON_ANDROID
-#include <sys/xattr.h>
 #include <linux/xattr.h>
+#include <sys/xattr.h>
 #endif
+#include <android-base/stringprintf.h>
+#include <android-base/strings.h>
+#include <log/log.h>
 #include <unistd.h>
 #include <utime.h>
 
@@ -38,10 +42,6 @@
 #include "adb_utils.h"
 #include "private/android_filesystem_config.h"
 #include "security_log_tags.h"
-
-#include <android-base/stringprintf.h>
-#include <android-base/strings.h>
-#include <log/log.h>
 #ifndef ADB_NON_ANDROID
 #include <selinux/android.h>
 #endif
@@ -50,8 +50,7 @@
 static bool should_use_fs_config(const std::string& path) {
     // TODO: use fs_config to configure permissions on /data.
     return android::base::StartsWith(path, "/system/") ||
-           android::base::StartsWith(path, "/vendor/") ||
-           android::base::StartsWith(path, "/oem/");
+           android::base::StartsWith(path, "/vendor/") || android::base::StartsWith(path, "/oem/");
 }
 #endif
 
@@ -139,7 +138,7 @@ static bool do_list(sync_fd s, const char* path) {
     syncmsg msg;
     msg.dent.id = ID_DENT;
 
-    std::unique_ptr<DIR, int(*)(DIR*)> d(opendir(path), closedir);
+    std::unique_ptr<DIR, int (*)(DIR*)> d(opendir(path), closedir);
     if (!d) goto done;
 
     while ((de = readdir(d.get()))) {
@@ -154,7 +153,7 @@ static bool do_list(sync_fd s, const char* path) {
             msg.dent.namelen = d_name_length;
 
             if (!WriteFdExactly(s.wfd, &msg.dent, sizeof(msg.dent)) ||
-                    !WriteFdExactly(s.wfd, de->d_name, d_name_length)) {
+                !WriteFdExactly(s.wfd, de->d_name, d_name_length)) {
                 return false;
             }
         }
@@ -185,8 +184,9 @@ static bool SendSyncFailErrno(sync_fd s, const std::string& reason) {
     return SendSyncFail(s, android::base::StringPrintf("%s: %s", reason.c_str(), strerror(errno)));
 }
 
-static bool handle_send_file(sync_fd s, const char* path, uid_t uid, gid_t gid, uint64_t capabilities,
-                             mode_t mode, std::vector<char>& buffer, bool do_unlink) {
+static bool handle_send_file(sync_fd s, const char* path, uid_t uid, gid_t gid,
+                             uint64_t capabilities, mode_t mode, std::vector<char>& buffer,
+                             bool do_unlink) {
     syncmsg msg;
     unsigned int timestamp = 0;
 
@@ -301,7 +301,8 @@ abort:
 }
 
 #if defined(_WIN32)
-extern bool handle_send_link(sync_fd s, const std::string& path, std::vector<char>& buffer) __attribute__((error("no symlinks on Windows")));
+extern bool handle_send_link(sync_fd s, const std::string& path, std::vector<char>& buffer)
+    __attribute__((error("no symlinks on Windows")));
 #else
 static bool handle_send_link(sync_fd s, const std::string& path, std::vector<char>& buffer) {
     syncmsg msg;
@@ -415,7 +416,8 @@ static bool do_recv(sync_fd s, const char* path, std::vector<char>& buffer) {
             return false;
         }
         msg.data.size = r;
-        if (!WriteFdExactly(s.wfd, &msg.data, sizeof(msg.data)) || !WriteFdExactly(s.wfd, &buffer[0], r)) {
+        if (!WriteFdExactly(s.wfd, &msg.data, sizeof(msg.data)) ||
+            !WriteFdExactly(s.wfd, &buffer[0], r)) {
             adb_close(fd);
             return false;
         }
@@ -457,24 +459,24 @@ static bool handle_sync_command(sync_fd s, std::vector<char>& buffer) {
     D("sync: '%.4s' '%s'", id, name);
 
     switch (request.id) {
-      case ID_STAT:
-        if (!do_stat(s, name)) return false;
-        break;
-      case ID_LIST:
-        if (!do_list(s, name)) return false;
-        break;
-      case ID_SEND:
-        if (!do_send(s, name, buffer)) return false;
-        break;
-      case ID_RECV:
-        if (!do_recv(s, name, buffer)) return false;
-        break;
-      case ID_QUIT:
-        return false;
-      default:
-        SendSyncFail(s, android::base::StringPrintf("unknown command '%.4s' (%08x)",
-                                                     id, request.id));
-        return false;
+        case ID_STAT:
+            if (!do_stat(s, name)) return false;
+            break;
+        case ID_LIST:
+            if (!do_list(s, name)) return false;
+            break;
+        case ID_SEND:
+            if (!do_send(s, name, buffer)) return false;
+            break;
+        case ID_RECV:
+            if (!do_recv(s, name, buffer)) return false;
+            break;
+        case ID_QUIT:
+            return false;
+        default:
+            SendSyncFail(
+                s, android::base::StringPrintf("unknown command '%.4s' (%08x)", id, request.id));
+            return false;
     }
 
     return true;

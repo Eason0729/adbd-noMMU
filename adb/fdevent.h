@@ -18,21 +18,21 @@
 #define __FDEVENT_H
 
 #include <stddef.h>
-#include <stdint.h>  /* for int64_t */
+#include <stdint.h> /* for int64_t */
 
 /* events that may be observed */
-#define FDE_READ              0x0001
-#define FDE_WRITE             0x0002
-#define FDE_ERROR             0x0004
+#define FDE_READ 0x0001
+#define FDE_WRITE 0x0002
+#define FDE_ERROR 0x0004
 
 /* features that may be set (via the events set/add/del interface) */
-#define FDE_DONT_CLOSE        0x0080
+#define FDE_DONT_CLOSE 0x0080
 
-typedef void (*fd_func)(int fd, unsigned events, void *userdata);
+typedef void (*fd_func)(int fd, unsigned events, void* userdata);
 
 struct fdevent {
-    fdevent *next;
-    fdevent *prev;
+    fdevent* next;
+    fdevent* prev;
 
     int fd;
     // For pipe-based bidirectional channels the write end may be a different
@@ -45,46 +45,45 @@ struct fdevent {
     uint16_t events;
 
     fd_func func;
-    void *arg;
+    void* arg;
 };
 
 /* Allocate and initialize a new fdevent object
  * Note: use FD_TIMER as 'fd' to create a fd-less object
  * (used to implement timers).
-*/
-fdevent *fdevent_create(int fd, fd_func func, void *arg);
+ */
+fdevent* fdevent_create(int fd, fd_func func, void* arg);
 
 /* Uninitialize and deallocate an fdevent object that was
 ** created by fdevent_create()
 */
-void fdevent_destroy(fdevent *fde);
+void fdevent_destroy(fdevent* fde);
 
 /* Initialize an fdevent object that was externally allocated
  */
-void fdevent_install(fdevent *fde, int fd, fd_func func, void *arg);
+void fdevent_install(fdevent* fde, int fd, fd_func func, void* arg);
 
 /* Initialize an fdevent object with separate read/write fds (pipe pair).
  * |read_fd| is monitored for POLLIN, |write_fd| for POLLOUT. If write_fd == -1
  * or write_fd == read_fd this behaves like the single-fd variant above.
  */
-void fdevent_install(fdevent *fde, int read_fd, int write_fd,
-                     fd_func func, void *arg);
+void fdevent_install(fdevent* fde, int read_fd, int write_fd, fd_func func, void* arg);
 
 /* Uninitialize an fdevent object that was initialized by
 ** fdevent_install()
 */
-void fdevent_remove(fdevent *item);
+void fdevent_remove(fdevent* item);
 
 /* Change which events should cause notifications
-*/
-void fdevent_set(fdevent *fde, unsigned events);
-void fdevent_add(fdevent *fde, unsigned events);
-void fdevent_del(fdevent *fde, unsigned events);
+ */
+void fdevent_set(fdevent* fde, unsigned events);
+void fdevent_add(fdevent* fde, unsigned events);
+void fdevent_del(fdevent* fde, unsigned events);
 
-void fdevent_set_timeout(fdevent *fde, int64_t  timeout_ms);
+void fdevent_set_timeout(fdevent* fde, int64_t timeout_ms);
 
 /* loop forever, handling events.
-*/
+ */
 void fdevent_loop();
 
 // The following functions are used only for tests.

@@ -16,13 +16,12 @@
 
 #include "diagnose_usb.h"
 
+#include <android-base/stringprintf.h>
 #include <errno.h>
 #include <unistd.h>
 
 #include <string>
 #include <vector>
-
-#include <android-base/stringprintf.h>
 
 #if defined(__linux__)
 #include <grp.h>
@@ -55,7 +54,10 @@ static const char* GetUdevProblem() {
             std::vector<gid_t> groups(n);
             getgroups(n, groups.data());
             for (int i = 0; i < n; ++i) {
-                if (groups[i] == gid) { in_group = true; break; }
+                if (groups[i] == gid) {
+                    in_group = true;
+                    break;
+                }
             }
         }
     }
@@ -91,6 +93,6 @@ std::string UsbNoPermissionsLongHelpText() {
         header += android::base::StringPrintf(": %s", problem);
     }
 
-    return android::base::StringPrintf("%s.\nSee [%s] for more information.",
-                                       header.c_str(), kPermissionsHelpUrl);
+    return android::base::StringPrintf("%s.\nSee [%s] for more information.", header.c_str(),
+                                       kPermissionsHelpUrl);
 }

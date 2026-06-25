@@ -18,8 +18,6 @@
 
 #define TRACE_TAG JDWP
 
-#include "sysdeps.h"
-
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -35,6 +33,7 @@
 #include "adb.h"
 #include "adb_io.h"
 #include "adb_utils.h"
+#include "sysdeps.h"
 
 /* here's how these things work.
 

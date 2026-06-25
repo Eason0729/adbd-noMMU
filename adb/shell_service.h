@@ -25,13 +25,11 @@
 #ifndef SHELL_SERVICE_H_
 #define SHELL_SERVICE_H_
 
+#include <android-base/macros.h>
 #include <stdint.h>
 
-#include <android-base/macros.h>
-
-#include "sysdeps.h"
-
 #include "adb.h"
+#include "sysdeps.h"
 
 // Class to send and receive shell protocol packets.
 //
@@ -76,11 +74,17 @@ class ShellProtocol {
     virtual ~ShellProtocol();
 
     // Returns a pointer to the data buffer.
-    const char* data() const { return buffer_ + kHeaderSize; }
-    char* data() { return buffer_ + kHeaderSize; }
+    const char* data() const {
+        return buffer_ + kHeaderSize;
+    }
+    char* data() {
+        return buffer_ + kHeaderSize;
+    }
 
     // Returns the total capacity of the data buffer.
-    size_t data_capacity() const { return buffer_end_ - data(); }
+    size_t data_capacity() const {
+        return buffer_end_ - data();
+    }
 
     // Reads a packet from the FD.
     //
@@ -92,10 +96,14 @@ class ShellProtocol {
     bool Read();
 
     // Returns the ID of the packet in the buffer.
-    int id() const { return buffer_[0]; }
+    int id() const {
+        return buffer_[0];
+    }
 
     // Returns the number of bytes that have been read into the data buffer.
-    size_t data_length() const { return data_length_; }
+    size_t data_length() const {
+        return data_length_;
+    }
 
     // Writes the packet currently in the buffer to the FD.
     //
@@ -148,8 +156,8 @@ enum class SubprocessProtocol {
 // failure. For the raw no-protocol case read_fd == write_fd (a single PTY or
 // pipe fd); for the shell-protocol case the read and write fds are distinct
 // pipe ends.
-adb_channel StartSubprocess(const char* name, const char* terminal_type,
-                            SubprocessType type, SubprocessProtocol protocol);
+adb_channel StartSubprocess(const char* name, const char* terminal_type, SubprocessType type,
+                            SubprocessProtocol protocol);
 
 #endif  // !ADB_HOST
 

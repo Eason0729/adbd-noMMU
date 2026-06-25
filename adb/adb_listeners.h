@@ -17,19 +17,19 @@
 #ifndef __ADB_LISTENERS_H
 #define __ADB_LISTENERS_H
 
-#include "adb.h"
+#include <android-base/macros.h>
 
 #include <string>
 
-#include <android-base/macros.h>
+#include "adb.h"
 
 // error/status codes for install_listener.
 enum InstallStatus {
-  INSTALL_STATUS_OK = 0,
-  INSTALL_STATUS_INTERNAL_ERROR = -1,
-  INSTALL_STATUS_CANNOT_BIND = -2,
-  INSTALL_STATUS_CANNOT_REBIND = -3,
-  INSTALL_STATUS_LISTENER_NOT_FOUND = -4,
+    INSTALL_STATUS_OK = 0,
+    INSTALL_STATUS_INTERNAL_ERROR = -1,
+    INSTALL_STATUS_CANNOT_BIND = -2,
+    INSTALL_STATUS_CANNOT_REBIND = -3,
+    INSTALL_STATUS_LISTENER_NOT_FOUND = -4,
 };
 
 InstallStatus install_listener(const std::string& local_name, const char* connect_to,

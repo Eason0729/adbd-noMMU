@@ -17,10 +17,10 @@
 #ifndef _ADB_UTILS_H_
 #define _ADB_UTILS_H_
 
-#include <string>
-
 #include <android-base/macros.h>
 #include <android-base/unique_fd.h>
+
+#include <string>
 
 void close_stdin();
 

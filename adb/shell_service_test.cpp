@@ -16,14 +16,12 @@
 
 #include "shell_service.h"
 
+#include <android-base/strings.h>
 #include <gtest/gtest.h>
-
 #include <signal.h>
 
 #include <string>
 #include <vector>
-
-#include <android-base/strings.h>
 
 #include "adb.h"
 #include "adb_io.h"
@@ -34,7 +32,6 @@ class ShellServiceTest : public ::testing::Test {
     static void SetUpTestCase() {
         // This is normally done in main.cpp.
         saved_sigpipe_handler_ = signal(SIGPIPE, SIG_IGN);
-
     }
 
     static void TearDownTestCase() {
@@ -44,8 +41,7 @@ class ShellServiceTest : public ::testing::Test {
     // Helpers to start and cleanup a subprocess. Cleanup normally does not
     // need to be called manually unless multiple subprocesses are run from
     // a single test.
-    void StartTestSubprocess(const char* command, SubprocessType type,
-                             SubprocessProtocol protocol);
+    void StartTestSubprocess(const char* command, SubprocessType type, SubprocessProtocol protocol);
     void CleanupTestSubprocess();
 
     virtual void TearDown() override {
@@ -60,8 +56,8 @@ class ShellServiceTest : public ::testing::Test {
 
 sighandler_t ShellServiceTest::saved_sigpipe_handler_ = nullptr;
 
-void ShellServiceTest::StartTestSubprocess(
-        const char* command, SubprocessType type, SubprocessProtocol protocol) {
+void ShellServiceTest::StartTestSubprocess(const char* command, SubprocessType type,
+                                           SubprocessProtocol protocol) {
     // We want to intercept the shell exit message to make sure it's sent.
     saved_shell_exit_fd_ = SHELL_EXIT_NOTIFY_FD;
     int fd[2];
@@ -77,8 +73,7 @@ void ShellServiceTest::CleanupTestSubprocess() {
     if (subprocess_fd_ >= 0) {
         // Subprocess should send its FD to SHELL_EXIT_NOTIFY_FD for cleanup.
         int notified_fd = -1;
-        ASSERT_TRUE(ReadFdExactly(shell_exit_receiver_fd_, &notified_fd,
-                                  sizeof(notified_fd)));
+        ASSERT_TRUE(ReadFdExactly(shell_exit_receiver_fd_, &notified_fd, sizeof(notified_fd)));
         ASSERT_EQ(notified_fd, subprocess_fd_);
 
         adb_close(subprocess_fd_);
@@ -141,8 +136,7 @@ int ReadShellProtocol(int fd, std::string* stdout, std::string* stderr) {
 
 // Checks if each line in |lines| exists in the same order in |output|. Blank
 // lines in |output| are ignored for simplicity.
-bool ExpectLinesEqual(const std::string& output,
-                      const std::vector<std::string>& lines) {
+bool ExpectLinesEqual(const std::string& output, const std::vector<std::string>& lines) {
     auto output_lines = android::base::Split(output, "\r\n");
     size_t i = 0;
 
@@ -171,9 +165,8 @@ bool ExpectLinesEqual(const std::string& output,
 // Tests a raw subprocess with no protocol.
 TEST_F(ShellServiceTest, RawNoProtocolSubprocess) {
     // [ -t 0 ] checks if stdin is connected to a terminal.
-    ASSERT_NO_FATAL_FAILURE(StartTestSubprocess(
-            "echo foo; echo bar >&2; [ -t 0 ]; echo $?",
-            SubprocessType::kRaw, SubprocessProtocol::kNone));
+    ASSERT_NO_FATAL_FAILURE(StartTestSubprocess("echo foo; echo bar >&2; [ -t 0 ]; echo $?",
+                                                SubprocessType::kRaw, SubprocessProtocol::kNone));
 
     // [ -t 0 ] == 0 means we have a terminal (PTY). Even when requesting a raw subprocess, without
     // the shell protocol we should always force a PTY to ensure proper cleanup.
@@ -183,9 +176,8 @@ TEST_F(ShellServiceTest, RawNoProtocolSubprocess) {
 // Tests a PTY subprocess with no protocol.
 TEST_F(ShellServiceTest, PtyNoProtocolSubprocess) {
     // [ -t 0 ] checks if stdin is connected to a terminal.
-    ASSERT_NO_FATAL_FAILURE(StartTestSubprocess(
-            "echo foo; echo bar >&2; [ -t 0 ]; echo $?",
-            SubprocessType::kPty, SubprocessProtocol::kNone));
+    ASSERT_NO_FATAL_FAILURE(StartTestSubprocess("echo foo; echo bar >&2; [ -t 0 ]; echo $?",
+                                                SubprocessType::kPty, SubprocessProtocol::kNone));
 
     // [ -t 0 ] == 0 means we have a terminal (PTY).
     ExpectLinesEqual(ReadRaw(subprocess_fd_), {"foo", "bar", "0"});
@@ -193,9 +185,8 @@ TEST_F(ShellServiceTest, PtyNoProtocolSubprocess) {
 
 // Tests a raw subprocess with the shell protocol.
 TEST_F(ShellServiceTest, RawShellProtocolSubprocess) {
-    ASSERT_NO_FATAL_FAILURE(StartTestSubprocess(
-            "echo foo; echo bar >&2; echo baz; exit 24",
-            SubprocessType::kRaw, SubprocessProtocol::kShell));
+    ASSERT_NO_FATAL_FAILURE(StartTestSubprocess("echo foo; echo bar >&2; echo baz; exit 24",
+                                                SubprocessType::kRaw, SubprocessProtocol::kShell));
 
     std::string stdout, stderr;
     EXPECT_EQ(24, ReadShellProtocol(subprocess_fd_, &stdout, &stderr));
@@ -205,9 +196,8 @@ TEST_F(ShellServiceTest, RawShellProtocolSubprocess) {
 
 // Tests a PTY subprocess with the shell protocol.
 TEST_F(ShellServiceTest, PtyShellProtocolSubprocess) {
-    ASSERT_NO_FATAL_FAILURE(StartTestSubprocess(
-            "echo foo; echo bar >&2; echo baz; exit 50",
-            SubprocessType::kPty, SubprocessProtocol::kShell));
+    ASSERT_NO_FATAL_FAILURE(StartTestSubprocess("echo foo; echo bar >&2; echo baz; exit 50",
+                                                SubprocessType::kPty, SubprocessProtocol::kShell));
 
     // PTY always combines stdout and stderr but the shell protocol should
     // still give us an exit code.
@@ -219,13 +209,11 @@ TEST_F(ShellServiceTest, PtyShellProtocolSubprocess) {
 
 // Tests an interactive PTY session.
 TEST_F(ShellServiceTest, InteractivePtySubprocess) {
-    ASSERT_NO_FATAL_FAILURE(StartTestSubprocess(
-            "", SubprocessType::kPty, SubprocessProtocol::kShell));
+    ASSERT_NO_FATAL_FAILURE(
+        StartTestSubprocess("", SubprocessType::kPty, SubprocessProtocol::kShell));
 
     // Use variable substitution so echoed input is different from output.
-    const char* commands[] = {"TEST_STR=abc123",
-                              "echo --${TEST_STR}--",
-                              "exit"};
+    const char* commands[] = {"TEST_STR=abc123", "echo --${TEST_STR}--", "exit"};
 
     ShellProtocol* protocol = new ShellProtocol(subprocess_fd_);
     for (std::string command : commands) {
@@ -248,9 +236,8 @@ TEST_F(ShellServiceTest, InteractivePtySubprocess) {
 
 // Tests closing raw subprocess stdin.
 TEST_F(ShellServiceTest, CloseClientStdin) {
-    ASSERT_NO_FATAL_FAILURE(StartTestSubprocess(
-            "cat; echo TEST_DONE",
-            SubprocessType::kRaw, SubprocessProtocol::kShell));
+    ASSERT_NO_FATAL_FAILURE(StartTestSubprocess("cat; echo TEST_DONE", SubprocessType::kRaw,
+                                                SubprocessProtocol::kShell));
 
     std::string input = "foo\nbar";
     ShellProtocol* protocol = new ShellProtocol(subprocess_fd_);
@@ -267,9 +254,8 @@ TEST_F(ShellServiceTest, CloseClientStdin) {
 
 // Tests that nothing breaks when the stdin/stdout pipe closes.
 TEST_F(ShellServiceTest, CloseStdinStdoutSubprocess) {
-    ASSERT_NO_FATAL_FAILURE(StartTestSubprocess(
-            "exec 0<&-; exec 1>&-; echo bar >&2",
-            SubprocessType::kRaw, SubprocessProtocol::kShell));
+    ASSERT_NO_FATAL_FAILURE(StartTestSubprocess("exec 0<&-; exec 1>&-; echo bar >&2",
+                                                SubprocessType::kRaw, SubprocessProtocol::kShell));
 
     std::string stdout, stderr;
     EXPECT_EQ(0, ReadShellProtocol(subprocess_fd_, &stdout, &stderr));
@@ -279,9 +265,8 @@ TEST_F(ShellServiceTest, CloseStdinStdoutSubprocess) {
 
 // Tests that nothing breaks when the stderr pipe closes.
 TEST_F(ShellServiceTest, CloseStderrSubprocess) {
-    ASSERT_NO_FATAL_FAILURE(StartTestSubprocess(
-            "exec 2>&-; echo foo",
-            SubprocessType::kRaw, SubprocessProtocol::kShell));
+    ASSERT_NO_FATAL_FAILURE(StartTestSubprocess("exec 2>&-; echo foo", SubprocessType::kRaw,
+                                                SubprocessProtocol::kShell));
 
     std::string stdout, stderr;
     EXPECT_EQ(0, ReadShellProtocol(subprocess_fd_, &stdout, &stderr));

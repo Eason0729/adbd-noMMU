@@ -18,27 +18,24 @@
 
 #ifndef ADB_NOMMU
 
-#include "sysdeps.h"
-
 #include <fcntl.h>
 #include <inttypes.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <sys/stat.h>
 
-#include "cutils/properties.h"
-
 #include "adb.h"
+#include "cutils/properties.h"
+#include "sysdeps.h"
 
 #if !ADB_NON_ANDROID
 #include "ext4_sb.h"
+#include "fec/io.h"
 #include "fs_mgr.h"
 #include "remount_service.h"
 
-#include "fec/io.h"
-
 #define FSTAB_PREFIX "/fstab."
-struct fstab *fstab;
+struct fstab* fstab;
 
 #ifdef ALLOW_ADBD_DISABLE_VERITY
 static const bool kAllowDisableVerity = true;
@@ -47,12 +44,11 @@ static const bool kAllowDisableVerity = false;
 #endif
 
 /* Turn verity on/off */
-static int set_verity_enabled_state(int wfd, const char *block_device,
-                                     const char* mount_point, bool enable)
-{
+static int set_verity_enabled_state(int wfd, const char* block_device, const char* mount_point,
+                                    bool enable) {
     if (!make_block_device_writable(block_device)) {
-        WriteFdFmt(wfd, "Could not make block device %s writable (%s).\n",
-                   block_device, strerror(errno));
+        WriteFdFmt(wfd, "Could not make block device %s writable (%s).\n", block_device,
+                   strerror(errno));
         return -1;
     }
 
@@ -83,8 +79,7 @@ static int set_verity_enabled_state(int wfd, const char *block_device,
 
     if (!fh.set_verity_status(enable)) {
         WriteFdFmt(wfd, "Could not set verity %s flag on device %s with error %s\n",
-                   enable ? "enabled" : "disabled",
-                   block_device, strerror(errno));
+                   enable ? "enabled" : "disabled", block_device, strerror(errno));
         return -1;
     }
 
@@ -92,8 +87,7 @@ static int set_verity_enabled_state(int wfd, const char *block_device,
     return 0;
 }
 
-void set_verity_enabled_state_service(adb_channel ch, void* cookie)
-{
+void set_verity_enabled_state_service(adb_channel ch, void* cookie) {
     int wfd = ch.write_fd >= 0 ? ch.write_fd : ch.read_fd;
     bool enable = (cookie != NULL);
     if (kAllowDisableVerity) {
@@ -115,8 +109,7 @@ void set_verity_enabled_state_service(adb_channel ch, void* cookie)
         }
 
         property_get("ro.hardware", propbuf, "");
-        snprintf(fstab_filename, sizeof(fstab_filename), FSTAB_PREFIX"%s",
-                 propbuf);
+        snprintf(fstab_filename, sizeof(fstab_filename), FSTAB_PREFIX "%s", propbuf);
 
         fstab = fs_mgr_read_fstab(fstab_filename);
         if (!fstab) {
@@ -126,13 +119,12 @@ void set_verity_enabled_state_service(adb_channel ch, void* cookie)
 
         /* Loop through entries looking for ones that vold manages */
         for (i = 0; i < fstab->num_entries; i++) {
-            if(fs_mgr_is_verified(&fstab->recs[i])) {
+            if (fs_mgr_is_verified(&fstab->recs[i])) {
                 if (!set_verity_enabled_state(wfd, fstab->recs[i].blk_device,
-                                              fstab->recs[i].mount_point,
-                                              enable)) {
+                                              fstab->recs[i].mount_point, enable)) {
                     any_changed = true;
                 }
-           }
+            }
         }
 
         if (any_changed) {
@@ -147,8 +139,7 @@ errout:
     adb_channel_close(&ch);
 }
 #else
-void set_verity_enabled_state_service(adb_channel ch, void* cookie)
-{
+void set_verity_enabled_state_service(adb_channel ch, void* cookie) {
     adb_channel_close(&ch);
 }
 #endif /* !ADB_NON_ANDROID */

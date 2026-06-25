@@ -14,11 +14,10 @@
  * limitations under the License.
  */
 
+#include <android-base/test_utils.h>
 #include <gtest/gtest.h>
 
 #include "sysdeps.h"
-
-#include <android-base/test_utils.h>
 
 TEST(sysdeps_win32, adb_getenv) {
     // Insert all test env vars before first call to adb_getenv() which will
@@ -57,10 +56,11 @@ TEST(sysdeps_win32, adb_getenv) {
     EXPECT_STREQ("3", adb_getenv("Sysdeps_Win32_Test_MixedCase"));
 
     // Check that UTF-16 was converted to UTF-8.
-    EXPECT_STREQ("\xc2\xa1\x48\x6f\x6c\x61\x21\xce\xb1\xce\xb2\xce\xb3\x61\x6d"
-                 "\x62\x75\x6c\xc5\x8d\xd0\xbf\xd1\x80\xd0\xb8\xd0\xb2\xd0\xb5"
-                 "\xd1\x82",
-                 adb_getenv("SYSDEPS_WIN32_TEST_UNICODE"));
+    EXPECT_STREQ(
+        "\xc2\xa1\x48\x6f\x6c\x61\x21\xce\xb1\xce\xb2\xce\xb3\x61\x6d"
+        "\x62\x75\x6c\xc5\x8d\xd0\xbf\xd1\x80\xd0\xb8\xd0\xb2\xd0\xb5"
+        "\xd1\x82",
+        adb_getenv("SYSDEPS_WIN32_TEST_UNICODE"));
 
     // Check an env var that should always be set.
     const char* path_val = adb_getenv("PATH");
@@ -146,22 +146,21 @@ void TestParseCompleteUTF8(const char* buf, const size_t buf_size,
                            const size_t expected_complete_bytes,
                            const std::vector<char>& expected_remaining_bytes) {
     std::vector<char> remaining_bytes;
-    const size_t complete_bytes = internal::ParseCompleteUTF8(buf, buf + buf_size,
-                                                              &remaining_bytes);
+    const size_t complete_bytes = internal::ParseCompleteUTF8(buf, buf + buf_size, &remaining_bytes);
     EXPECT_EQ(expected_complete_bytes, complete_bytes);
     EXPECT_EQ(expected_remaining_bytes, remaining_bytes);
 }
 
 TEST(sysdeps_win32, ParseCompleteUTF8) {
     const std::vector<std::vector<char>> multi_byte_sequences = {
-        { '\xc2', '\xa9' },                 // 2 byte UTF-8 sequence
-        { '\xe1', '\xb4', '\xa8' },         // 3 byte UTF-8 sequence
-        { '\xf0', '\x9f', '\x98', '\x80' }, // 4 byte UTF-8 sequence
+        {'\xc2', '\xa9'},                  // 2 byte UTF-8 sequence
+        {'\xe1', '\xb4', '\xa8'},          // 3 byte UTF-8 sequence
+        {'\xf0', '\x9f', '\x98', '\x80'},  // 4 byte UTF-8 sequence
     };
     std::vector<std::vector<char>> all_sequences = {
-        {},                                 // 0 bytes
-        { '\0' },                           // NULL byte
-        { 'a' },                            // 1 byte UTF-8 sequence
+        {},      // 0 bytes
+        {'\0'},  // NULL byte
+        {'a'},   // 1 byte UTF-8 sequence
     };
     all_sequences.insert(all_sequences.end(), multi_byte_sequences.begin(),
                          multi_byte_sequences.end());
@@ -193,7 +192,7 @@ TEST(sysdeps_win32, ParseCompleteUTF8) {
         // buffer.
         std::vector<char> buffer(prefix);
         for (size_t i = 0; i < 8; ++i) {
-            buffer.push_back(0x80); // trailing byte
+            buffer.push_back(0x80);  // trailing byte
             TestParseCompleteUTF8(buffer.data(), buffer.size(), buffer.size(), std::vector<char>());
         }
     }

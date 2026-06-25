@@ -17,9 +17,8 @@
 #pragma once
 #if defined(_WIN32)
 
-#include <windows.h>
-
 #include <android-base/macros.h>
+#include <windows.h>
 
 #include "adb.h"
 
@@ -115,6 +114,6 @@ class mutex {
     friend class condition_variable;
 };
 
-}
+}  // namespace std
 
 #endif  // defined(_WIN32)

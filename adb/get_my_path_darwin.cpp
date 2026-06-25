@@ -19,8 +19,7 @@
 
 #include "adb.h"
 
-void get_my_path(char *s, size_t maxLen)
-{
+void get_my_path(char* s, size_t maxLen) {
     CFBundleRef mainBundle = CFBundleGetMainBundle();
     CFURLRef executableURL = CFBundleCopyExecutableURL(mainBundle);
     CFStringRef executablePathString = CFURLCopyFileSystemPath(executableURL, kCFURLPOSIXPathStyle);
@@ -29,4 +28,3 @@ void get_my_path(char *s, size_t maxLen)
     CFStringGetFileSystemRepresentation(executablePathString, s, maxLen);
     CFRelease(executablePathString);
 }
-

@@ -16,8 +16,9 @@
 
 #define TRACE_TAG USB
 
-#include "sysdeps.h"
-
+#include <android-base/file.h>
+#include <android-base/stringprintf.h>
+#include <android-base/strings.h>
 #include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
@@ -39,11 +40,8 @@
 #include <mutex>
 #include <string>
 
-#include <android-base/file.h>
-#include <android-base/stringprintf.h>
-#include <android-base/strings.h>
-
 #include "adb.h"
+#include "sysdeps.h"
 #include "transport.h"
 
 using namespace std::literals;
@@ -53,7 +51,7 @@ using namespace std::literals;
 
 struct usb_handle {
     ~usb_handle() {
-      if (fd != -1) unix_close(fd);
+        if (fd != -1) unix_close(fd);
     }
 
     std::string path;
@@ -116,10 +114,9 @@ static inline bool contains_non_digit(const char* name) {
 }
 
 static void find_usb_device(const std::string& base,
-        void (*register_device_callback)
-                (const char*, const char*, unsigned char, unsigned char, int, int, unsigned))
-{
-    std::unique_ptr<DIR, int(*)(DIR*)> bus_dir(opendir(base.c_str()), closedir);
+                            void (*register_device_callback)(const char*, const char*, unsigned char,
+                                                             unsigned char, int, int, unsigned)) {
+    std::unique_ptr<DIR, int (*)(DIR*)> bus_dir(opendir(base.c_str()), closedir);
     if (!bus_dir) return;
 
     dirent* de;
@@ -128,7 +125,7 @@ static void find_usb_device(const std::string& base,
 
         std::string bus_name = base + "/" + de->d_name;
 
-        std::unique_ptr<DIR, int(*)(DIR*)> dev_dir(opendir(bus_name.c_str()), closedir);
+        std::unique_ptr<DIR, int (*)(DIR*)> dev_dir(opendir(bus_name.c_str()), closedir);
         if (!dev_dir) continue;
 
         while ((de = readdir(dev_dir.get()))) {
@@ -157,7 +154,7 @@ static void find_usb_device(const std::string& base,
             size_t desclength = unix_read(fd, devdesc, sizeof(devdesc));
             bufend = bufptr + desclength;
 
-                // should have device and configuration descriptors, and atleast two endpoints
+            // should have device and configuration descriptors, and atleast two endpoints
             if (desclength < USB_DT_DEVICE_SIZE + USB_DT_CONFIG_SIZE) {
                 D("desclength %zu is too small", desclength);
                 unix_close(fd);
@@ -167,7 +164,8 @@ static void find_usb_device(const std::string& base,
             device = (struct usb_device_descriptor*)bufptr;
             bufptr += USB_DT_DEVICE_SIZE;
 
-            if((device->bLength != USB_DT_DEVICE_SIZE) || (device->bDescriptorType != USB_DT_DEVICE)) {
+            if ((device->bLength != USB_DT_DEVICE_SIZE) ||
+                (device->bDescriptorType != USB_DT_DEVICE)) {
                 unix_close(fd);
                 continue;
             }
@@ -176,8 +174,8 @@ static void find_usb_device(const std::string& base,
             pid = device->idProduct;
             DBGX("[ %s is V:%04x P:%04x ]\n", dev_name.c_str(), vid, pid);
 
-                // should have config descriptor next
-            config = (struct usb_config_descriptor *)bufptr;
+            // should have config descriptor next
+            config = (struct usb_config_descriptor*)bufptr;
             bufptr += USB_DT_CONFIG_SIZE;
             if (config->bLength != USB_DT_CONFIG_SIZE || config->bDescriptorType != USB_DT_CONFIG) {
                 D("usb_config_descriptor not found");
@@ -185,13 +183,13 @@ static void find_usb_device(const std::string& base,
                 continue;
             }
 
-                // loop through all the descriptors and look for the ADB interface
+            // loop through all the descriptors and look for the ADB interface
             while (bufptr < bufend) {
                 unsigned char length = bufptr[0];
                 unsigned char type = bufptr[1];
 
                 if (type == USB_DT_INTERFACE) {
-                    interface = (struct usb_interface_descriptor *)bufptr;
+                    interface = (struct usb_interface_descriptor*)bufptr;
                     bufptr += length;
 
                     if (length != USB_DT_INTERFACE_SIZE) {
@@ -199,41 +197,41 @@ static void find_usb_device(const std::string& base,
                         break;
                     }
 
-                    DBGX("bInterfaceClass: %d,  bInterfaceSubClass: %d,"
-                         "bInterfaceProtocol: %d, bNumEndpoints: %d\n",
-                         interface->bInterfaceClass, interface->bInterfaceSubClass,
-                         interface->bInterfaceProtocol, interface->bNumEndpoints);
+                    DBGX(
+                        "bInterfaceClass: %d,  bInterfaceSubClass: %d,"
+                        "bInterfaceProtocol: %d, bNumEndpoints: %d\n",
+                        interface->bInterfaceClass, interface->bInterfaceSubClass,
+                        interface->bInterfaceProtocol, interface->bNumEndpoints);
 
                     if (interface->bNumEndpoints == 2 &&
-                            is_adb_interface(vid, pid, interface->bInterfaceClass,
-                            interface->bInterfaceSubClass, interface->bInterfaceProtocol))  {
-
+                        is_adb_interface(vid, pid, interface->bInterfaceClass,
+                                         interface->bInterfaceSubClass,
+                                         interface->bInterfaceProtocol)) {
                         struct stat st;
                         char pathbuf[128];
                         char link[256];
-                        char *devpath = nullptr;
+                        char* devpath = nullptr;
 
                         DBGX("looking for bulk endpoints\n");
-                            // looks like ADB...
-                        ep1 = (struct usb_endpoint_descriptor *)bufptr;
+                        // looks like ADB...
+                        ep1 = (struct usb_endpoint_descriptor*)bufptr;
                         bufptr += USB_DT_ENDPOINT_SIZE;
-                            // For USB 3.0 SuperSpeed devices, skip potential
-                            // USB 3.0 SuperSpeed Endpoint Companion descriptor
-                        if (bufptr+2 <= devdesc + desclength &&
+                        // For USB 3.0 SuperSpeed devices, skip potential
+                        // USB 3.0 SuperSpeed Endpoint Companion descriptor
+                        if (bufptr + 2 <= devdesc + desclength &&
                             bufptr[0] == USB_DT_SS_EP_COMP_SIZE &&
                             bufptr[1] == USB_DT_SS_ENDPOINT_COMP) {
                             bufptr += USB_DT_SS_EP_COMP_SIZE;
                         }
-                        ep2 = (struct usb_endpoint_descriptor *)bufptr;
+                        ep2 = (struct usb_endpoint_descriptor*)bufptr;
                         bufptr += USB_DT_ENDPOINT_SIZE;
-                        if (bufptr+2 <= devdesc + desclength &&
+                        if (bufptr + 2 <= devdesc + desclength &&
                             bufptr[0] == USB_DT_SS_EP_COMP_SIZE &&
                             bufptr[1] == USB_DT_SS_ENDPOINT_COMP) {
                             bufptr += USB_DT_SS_EP_COMP_SIZE;
                         }
 
-                        if (bufptr > devdesc + desclength ||
-                            ep1->bLength != USB_DT_ENDPOINT_SIZE ||
+                        if (bufptr > devdesc + desclength || ep1->bLength != USB_DT_ENDPOINT_SIZE ||
                             ep1->bDescriptorType != USB_DT_ENDPOINT ||
                             ep2->bLength != USB_DT_ENDPOINT_SIZE ||
                             ep2->bDescriptorType != USB_DT_ENDPOINT) {
@@ -241,18 +239,18 @@ static void find_usb_device(const std::string& base,
                             break;
                         }
 
-                            // both endpoints should be bulk
+                        // both endpoints should be bulk
                         if (ep1->bmAttributes != USB_ENDPOINT_XFER_BULK ||
                             ep2->bmAttributes != USB_ENDPOINT_XFER_BULK) {
                             D("bulk endpoints not found");
                             continue;
                         }
-                            /* aproto 01 needs 0 termination */
-                        if(interface->bInterfaceProtocol == 0x01) {
+                        /* aproto 01 needs 0 termination */
+                        if (interface->bInterfaceProtocol == 0x01) {
                             zero_mask = ep1->wMaxPacketSize - 1;
                         }
 
-                            // we have a match.  now we just need to figure out which is in and which is out.
+                        // we have a match.  now we just need to figure out which is in and which is out.
                         unsigned char local_ep_in, local_ep_out;
                         if (ep1->bEndpointAddress & USB_ENDPOINT_DIR_MASK) {
                             local_ep_in = ep1->bEndpointAddress;
@@ -262,7 +260,7 @@ static void find_usb_device(const std::string& base,
                             local_ep_out = ep1->bEndpointAddress;
                         }
 
-                            // Determine the device path
+                        // Determine the device path
                         if (!fstat(fd, &st) && S_ISCHR(st.st_mode)) {
                             snprintf(pathbuf, sizeof(pathbuf), "/sys/dev/char/%d:%d",
                                      major(st.st_rdev), minor(st.st_rdev));
@@ -271,22 +269,21 @@ static void find_usb_device(const std::string& base,
                                 link[link_len] = '\0';
                                 const char* slash = strrchr(link, '/');
                                 if (slash) {
-                                    snprintf(pathbuf, sizeof(pathbuf),
-                                             "usb:%s", slash + 1);
+                                    snprintf(pathbuf, sizeof(pathbuf), "usb:%s", slash + 1);
                                     devpath = pathbuf;
                                 }
                             }
                         }
 
-                        register_device_callback(dev_name.c_str(), devpath,
-                                local_ep_in, local_ep_out,
-                                interface->bInterfaceNumber, device->iSerialNumber, zero_mask);
+                        register_device_callback(dev_name.c_str(), devpath, local_ep_in,
+                                                 local_ep_out, interface->bInterfaceNumber,
+                                                 device->iSerialNumber, zero_mask);
                         break;
                     }
                 } else {
                     bufptr += length;
                 }
-            } // end of while
+            }  // end of while
 
             unix_close(fd);
         }
@@ -398,12 +395,10 @@ static int usb_bulk_read(usb_handle* h, void* data, int len) {
     }
 }
 
-
-int usb_write(usb_handle *h, const void *_data, int len)
-{
+int usb_write(usb_handle* h, const void* _data, int len) {
     D("++ usb_write ++");
 
-    unsigned char *data = (unsigned char*) _data;
+    unsigned char* data = (unsigned char*)_data;
     int n = usb_bulk_write(h, data, len);
     if (n != len) {
         D("ERROR: n = %d, errno = %d (%s)", n, errno, strerror(errno));
@@ -420,29 +415,27 @@ int usb_write(usb_handle *h, const void *_data, int len)
     return 0;
 }
 
-int usb_read(usb_handle *h, void *_data, int len)
-{
-    unsigned char *data = (unsigned char*) _data;
+int usb_read(usb_handle* h, void* _data, int len) {
+    unsigned char* data = (unsigned char*)_data;
     int n;
 
     D("++ usb_read ++");
-    while(len > 0) {
+    while (len > 0) {
         int xfer = len;
 
         D("[ usb read %d fd = %d], path=%s", xfer, h->fd, h->path.c_str());
         n = usb_bulk_read(h, data, xfer);
         D("[ usb read %d ] = %d, path=%s", xfer, n, h->path.c_str());
-        if(n != xfer) {
-            if((errno == ETIMEDOUT) && (h->fd != -1)) {
+        if (n != xfer) {
+            if ((errno == ETIMEDOUT) && (h->fd != -1)) {
                 D("[ timeout ]");
-                if(n > 0){
+                if (n > 0) {
                     data += n;
                     len -= n;
                 }
                 continue;
             }
-            D("ERROR: n = %d, errno = %d (%s)",
-                n, errno, strerror(errno));
+            D("ERROR: n = %d, errno = %d (%s)", n, errno, strerror(errno));
             return -1;
         }
 
@@ -498,9 +491,8 @@ int usb_close(usb_handle* h) {
     return 0;
 }
 
-static void register_device(const char* dev_name, const char* dev_path,
-                            unsigned char ep_in, unsigned char ep_out,
-                            int interface, int serial_index,
+static void register_device(const char* dev_name, const char* dev_path, unsigned char ep_in,
+                            unsigned char ep_out, int interface, int serial_index,
                             unsigned zero_mask) {
     // Since Linux will not reassign the device ID (and dev_name) as long as the
     // device is open, we can add to the list here once we open it and remove
@@ -511,7 +503,7 @@ static void register_device(const char* dev_name, const char* dev_path,
     // have no further work to do.
     {
         std::lock_guard<std::mutex> lock(g_usb_handles_mutex);
-        for (usb_handle* usb: g_usb_handles) {
+        for (usb_handle* usb : g_usb_handles) {
             if (usb->path == dev_name) {
                 return;
             }
@@ -539,8 +531,8 @@ static void register_device(const char* dev_name, const char* dev_path,
         usb->writeable = 0;
     }
 
-    D("[ usb opened %s%s, fd=%d]",
-      usb->path.c_str(), (usb->writeable ? "" : " (read-only)"), usb->fd);
+    D("[ usb opened %s%s, fd=%d]", usb->path.c_str(), (usb->writeable ? "" : " (read-only)"),
+      usb->fd);
 
     if (usb->writeable) {
         if (ioctl(usb->fd, USBDEVFS_CLAIMINTERFACE, &interface) != 0) {
@@ -550,8 +542,8 @@ static void register_device(const char* dev_name, const char* dev_path,
     }
 
     // Read the device's serial number.
-    std::string serial_path = android::base::StringPrintf(
-        "/sys/bus/usb/devices/%s/serial", dev_path + 4);
+    std::string serial_path =
+        android::base::StringPrintf("/sys/bus/usb/devices/%s/serial", dev_path + 4);
     std::string serial;
     if (!android::base::ReadFileToString(serial_path, &serial)) {
         D("[ usb read %s failed: %s ]", serial_path.c_str(), strerror(errno));

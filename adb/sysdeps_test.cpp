@@ -14,12 +14,14 @@
  * limitations under the License.
  */
 
+#include "sysdeps.h"
+
 #include <gtest/gtest.h>
 #include <unistd.h>
+
 #include <atomic>
 
 #include "adb_io.h"
-#include "sysdeps.h"
 #include "sysdeps/condition_variable.h"
 #include "sysdeps/mutex.h"
 
@@ -237,7 +239,7 @@ TEST_F(sysdeps_poll, fd_count) {
     for (int i = 0; i < num_sockets; ++i) {
         ASSERT_NE(0, pfds[i].revents & POLLIN);
 
-        int32_t buf[2] = { -1, -1 };
+        int32_t buf[2] = {-1, -1};
         ASSERT_EQ(adb_read(pfds[i].fd, buf, sizeof(buf)), static_cast<ssize_t>(sizeof(int32_t)));
         ASSERT_EQ(i, buf[0]);
     }
@@ -249,16 +251,18 @@ TEST_F(sysdeps_poll, fd_count) {
 
 TEST(sysdeps_mutex, mutex_smoke) {
     static std::atomic<bool> finished(false);
-    static std::mutex &m = *new std::mutex();
+    static std::mutex& m = *new std::mutex();
     m.lock();
     ASSERT_FALSE(m.try_lock());
-    adb_thread_create([](void*) {
-        ASSERT_FALSE(m.try_lock());
-        m.lock();
-        finished.store(true);
-        adb_sleep_ms(200);
-        m.unlock();
-    }, nullptr);
+    adb_thread_create(
+        [](void*) {
+            ASSERT_FALSE(m.try_lock());
+            m.lock();
+            finished.store(true);
+            adb_sleep_ms(200);
+            m.unlock();
+        },
+        nullptr);
 
     ASSERT_FALSE(finished.load());
     adb_sleep_ms(100);
@@ -273,7 +277,7 @@ TEST(sysdeps_mutex, mutex_smoke) {
 // Our implementation on Windows aborts on double lock.
 #if defined(_WIN32)
 TEST(sysdeps_mutex, mutex_reentrant_lock) {
-    std::mutex &m = *new std::mutex();
+    std::mutex& m = *new std::mutex();
 
     m.lock();
     ASSERT_FALSE(m.try_lock());
@@ -282,18 +286,20 @@ TEST(sysdeps_mutex, mutex_reentrant_lock) {
 #endif
 
 TEST(sysdeps_mutex, recursive_mutex_smoke) {
-    static std::recursive_mutex &m = *new std::recursive_mutex();
+    static std::recursive_mutex& m = *new std::recursive_mutex();
 
     m.lock();
     ASSERT_TRUE(m.try_lock());
     m.unlock();
 
-    adb_thread_create([](void*) {
-        ASSERT_FALSE(m.try_lock());
-        m.lock();
-        adb_sleep_ms(500);
-        m.unlock();
-    }, nullptr);
+    adb_thread_create(
+        [](void*) {
+            ASSERT_FALSE(m.try_lock());
+            m.lock();
+            adb_sleep_ms(500);
+            m.unlock();
+        },
+        nullptr);
 
     adb_sleep_ms(100);
     m.unlock();
@@ -304,17 +310,19 @@ TEST(sysdeps_mutex, recursive_mutex_smoke) {
 }
 
 TEST(sysdeps_condition_variable, smoke) {
-    static std::mutex &m = *new std::mutex;
-    static std::condition_variable &cond = *new std::condition_variable;
+    static std::mutex& m = *new std::mutex;
+    static std::condition_variable& cond = *new std::condition_variable;
     static volatile bool flag = false;
 
     std::unique_lock<std::mutex> lock(m);
-    adb_thread_create([](void*) {
-        m.lock();
-        flag = true;
-        cond.notify_one();
-        m.unlock();
-    }, nullptr);
+    adb_thread_create(
+        [](void*) {
+            m.lock();
+            flag = true;
+            cond.notify_one();
+            m.unlock();
+        },
+        nullptr);
 
     while (!flag) {
         cond.wait(lock);

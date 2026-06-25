@@ -18,9 +18,8 @@
 
 #include "adb_io.h"
 
-#include <unistd.h>
-
 #include <android-base/stringprintf.h>
+#include <unistd.h>
 
 #include "adb.h"
 #include "adb_trace.h"
@@ -86,8 +85,8 @@ bool ReadFdExactly(int fd, void* buf, size_t len) {
         }
     }
 
-    VLOG(RWX) << "readx: fd=" << fd << " wanted=" << len0 << " got=" << (len0 - len)
-              << " " << dump_hex(reinterpret_cast<const unsigned char*>(buf), len0);
+    VLOG(RWX) << "readx: fd=" << fd << " wanted=" << len0 << " got=" << (len0 - len) << " "
+              << dump_hex(reinterpret_cast<const unsigned char*>(buf), len0);
 
     return true;
 }
@@ -96,15 +95,15 @@ bool WriteFdExactly(int fd, const void* buf, size_t len) {
     const char* p = reinterpret_cast<const char*>(buf);
     int r;
 
-    VLOG(RWX) << "writex: fd=" << fd << " len=" << len
-              << " " << dump_hex(reinterpret_cast<const unsigned char*>(buf), len);
+    VLOG(RWX) << "writex: fd=" << fd << " len=" << len << " "
+              << dump_hex(reinterpret_cast<const unsigned char*>(buf), len);
 
     while (len > 0) {
         r = adb_write(fd, p, len);
         if (r == -1) {
             D("writex: fd=%d error %d: %s", fd, errno, strerror(errno));
             if (errno == EAGAIN) {
-                adb_sleep_ms(1); // just yield some cpu time
+                adb_sleep_ms(1);  // just yield some cpu time
                 continue;
             } else if (errno == EPIPE) {
                 D("writex: fd=%d disconnected", fd);
@@ -170,8 +169,7 @@ bool ReadOrderlyShutdown(int fd) {
         // data. We don't repeatedly call adb_read() until we get zero because
         // we don't know how long that would take, but we do know that the
         // caller wants to close the socket soon.
-        VLOG(RWX) << "ReadOrderlyShutdown(" << fd << ") unexpectedly read "
-                  << dump_hex(buf, result);
+        VLOG(RWX) << "ReadOrderlyShutdown(" << fd << ") unexpectedly read " << dump_hex(buf, result);
         // Shutdown the socket to prevent the caller from reading or writing to
         // it which doesn't make sense if we just read and discarded some data.
         adb_shutdown(fd);

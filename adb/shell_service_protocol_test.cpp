@@ -14,13 +14,11 @@
  * limitations under the License.
  */
 
-#include "shell_service.h"
-
 #include <gtest/gtest.h>
-
 #include <signal.h>
 #include <string.h>
 
+#include "shell_service.h"
 #include "sysdeps.h"
 
 class ShellProtocolTest : public ::testing::Test {
@@ -87,10 +85,9 @@ sig_t ShellProtocolTest::saved_sigpipe_handler_ = nullptr;
 namespace {
 
 // Returns true if the packet contains the given values.
-bool PacketEquals(const ShellProtocol* protocol, ShellProtocol::Id id,
-                    const void* data, size_t data_length) {
-    return (protocol->id() == id &&
-            protocol->data_length() == data_length &&
+bool PacketEquals(const ShellProtocol* protocol, ShellProtocol::Id id, const void* data,
+                  size_t data_length) {
+    return (protocol->id() == id && protocol->data_length() == data_length &&
             !memcmp(data, protocol->data(), data_length));
 }
 

@@ -20,24 +20,24 @@
 #include <string>
 #include <vector>
 
-#define MKID(a,b,c,d) ((a) | ((b) << 8) | ((c) << 16) | ((d) << 24))
+#define MKID(a, b, c, d) ((a) | ((b) << 8) | ((c) << 16) | ((d) << 24))
 
-#define ID_STAT MKID('S','T','A','T')
-#define ID_LIST MKID('L','I','S','T')
-#define ID_SEND MKID('S','E','N','D')
-#define ID_RECV MKID('R','E','C','V')
-#define ID_DENT MKID('D','E','N','T')
-#define ID_DONE MKID('D','O','N','E')
-#define ID_DATA MKID('D','A','T','A')
-#define ID_OKAY MKID('O','K','A','Y')
-#define ID_FAIL MKID('F','A','I','L')
-#define ID_QUIT MKID('Q','U','I','T')
+#define ID_STAT MKID('S', 'T', 'A', 'T')
+#define ID_LIST MKID('L', 'I', 'S', 'T')
+#define ID_SEND MKID('S', 'E', 'N', 'D')
+#define ID_RECV MKID('R', 'E', 'C', 'V')
+#define ID_DENT MKID('D', 'E', 'N', 'T')
+#define ID_DONE MKID('D', 'O', 'N', 'E')
+#define ID_DATA MKID('D', 'A', 'T', 'A')
+#define ID_OKAY MKID('O', 'K', 'A', 'Y')
+#define ID_FAIL MKID('F', 'A', 'I', 'L')
+#define ID_QUIT MKID('Q', 'U', 'I', 'T')
 
 struct SyncRequest {
-    uint32_t id;  // ID_STAT, et cetera.
+    uint32_t id;           // ID_STAT, et cetera.
     uint32_t path_length;  // <= 1024
     // Followed by 'path_length' bytes of path (not NUL-terminated).
-} __attribute__((packed)) ;
+} __attribute__((packed));
 
 union syncmsg {
     struct __attribute__((packed)) {
@@ -66,15 +66,14 @@ union syncmsg {
 void file_sync_service(adb_channel ch, void* cookie);
 bool do_sync_ls(const char* path);
 bool do_sync_push(const std::vector<const char*>& srcs, const char* dst);
-bool do_sync_pull(const std::vector<const char*>& srcs, const char* dst,
-                  bool copy_attrs);
+bool do_sync_pull(const std::vector<const char*>& srcs, const char* dst, bool copy_attrs);
 
 bool do_sync_sync(const std::string& lpath, const std::string& rpath, bool list_only);
 
 #if defined(ADB_NOMMU)
-#define SYNC_DATA_MAX (4*1024)
+#define SYNC_DATA_MAX (4 * 1024)
 #else
-#define SYNC_DATA_MAX (64*1024)
+#define SYNC_DATA_MAX (64 * 1024)
 #endif
 
 #endif

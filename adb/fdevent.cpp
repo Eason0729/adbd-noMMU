@@ -17,9 +17,10 @@
 
 #define TRACE_TAG FDEVENT
 
-#include "sysdeps.h"
 #include "fdevent.h"
 
+#include <android-base/logging.h>
+#include <android-base/stringprintf.h>
 #include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>
@@ -30,53 +31,51 @@
 #include <unordered_map>
 #include <vector>
 
-#include <android-base/logging.h>
-#include <android-base/stringprintf.h>
-
 #include "adb_io.h"
 #include "adb_trace.h"
 #include "adb_utils.h"
+#include "sysdeps.h"
 
 #if !ADB_HOST
 // This socket is used when a subproc shell service exists.
 // It wakes up the fdevent_loop() and cause the correct handling
 // of the shell's pseudo-tty master. I.e. force close it.
 int SHELL_EXIT_NOTIFY_FD = -1;
-#endif // !ADB_HOST
+#endif  // !ADB_HOST
 
-#define FDE_EVENTMASK  0x00ff
-#define FDE_STATEMASK  0xff00
+#define FDE_EVENTMASK 0x00ff
+#define FDE_STATEMASK 0xff00
 
-#define FDE_ACTIVE     0x0100
-#define FDE_PENDING    0x0200
-#define FDE_CREATED    0x0400
+#define FDE_ACTIVE 0x0100
+#define FDE_PENDING 0x0200
+#define FDE_CREATED 0x0400
 
 struct PollNode {
-  fdevent* fde;
-  adb_pollfd pollfd;
-  // Second pollfd for the write end when it is a distinct fd (pipe pair).
-  bool has_write_fd;
-  adb_pollfd write_pollfd;
+    fdevent* fde;
+    adb_pollfd pollfd;
+    // Second pollfd for the write end when it is a distinct fd (pipe pair).
+    bool has_write_fd;
+    adb_pollfd write_pollfd;
 
-  explicit PollNode(fdevent* fde) : fde(fde), has_write_fd(false) {
-      memset(&pollfd, 0, sizeof(pollfd));
-      pollfd.fd = fde->fd;
+    explicit PollNode(fdevent* fde) : fde(fde), has_write_fd(false) {
+        memset(&pollfd, 0, sizeof(pollfd));
+        pollfd.fd = fde->fd;
 
 #if defined(__linux__)
-      // Always enable POLLRDHUP, so the host server can take action when some clients disconnect.
-      // Then we can avoid leaving many sockets in CLOSE_WAIT state. See http://b/23314034.
-      pollfd.events = POLLRDHUP;
+        // Always enable POLLRDHUP, so the host server can take action when some clients disconnect.
+        // Then we can avoid leaving many sockets in CLOSE_WAIT state. See http://b/23314034.
+        pollfd.events = POLLRDHUP;
 #endif
 
-      if (fde->write_fd >= 0 && fde->write_fd != fde->fd) {
-          has_write_fd = true;
-          memset(&write_pollfd, 0, sizeof(write_pollfd));
-          write_pollfd.fd = fde->write_fd;
+        if (fde->write_fd >= 0 && fde->write_fd != fde->fd) {
+            has_write_fd = true;
+            memset(&write_pollfd, 0, sizeof(write_pollfd));
+            write_pollfd.fd = fde->write_fd;
 #if defined(__linux__)
-          write_pollfd.events = POLLRDHUP;
+            write_pollfd.events = POLLRDHUP;
 #endif
-      }
-  }
+        }
+    }
 };
 
 // All operations to fdevent should happen only in the main thread.
@@ -127,21 +126,19 @@ static std::string dump_fde(const fdevent* fde) {
     return android::base::StringPrintf("(fdevent %d/%d %s)", fde->fd, fde->write_fd, state.c_str());
 }
 
-fdevent *fdevent_create(int fd, fd_func func, void *arg)
-{
+fdevent* fdevent_create(int fd, fd_func func, void* arg) {
     check_main_thread();
-    fdevent *fde = (fdevent*) malloc(sizeof(fdevent));
-    if(fde == 0) return 0;
+    fdevent* fde = (fdevent*)malloc(sizeof(fdevent));
+    if (fde == 0) return 0;
     fdevent_install(fde, fd, func, arg);
     fde->state |= FDE_CREATED;
     return fde;
 }
 
-void fdevent_destroy(fdevent *fde)
-{
+void fdevent_destroy(fdevent* fde) {
     check_main_thread();
-    if(fde == 0) return;
-    if(!(fde->state & FDE_CREATED)) {
+    if (fde == 0) return;
+    if (!(fde->state & FDE_CREATED)) {
         LOG(FATAL) << "destroying fde not created by fdevent_create(): " << dump_fde(fde);
     }
     fdevent_remove(fde);
@@ -152,8 +149,7 @@ void fdevent_install(fdevent* fde, int fd, fd_func func, void* arg) {
     fdevent_install(fde, fd, -1, func, arg);
 }
 
-void fdevent_install(fdevent* fde, int read_fd, int write_fd,
-                     fd_func func, void* arg) {
+void fdevent_install(fdevent* fde, int read_fd, int write_fd, fd_func func, void* arg) {
     check_main_thread();
     CHECK_GE(read_fd, 0);
     memset(fde, 0, sizeof(fdevent));
@@ -339,8 +335,7 @@ static void fdevent_process() {
     }
 }
 
-static void fdevent_call_fdfunc(fdevent* fde)
-{
+static void fdevent_call_fdfunc(fdevent* fde) {
     unsigned events = fde->events;
     fde->events = 0;
     CHECK(fde->state & FDE_PENDING);
@@ -353,10 +348,7 @@ static void fdevent_call_fdfunc(fdevent* fde)
 
 #include <sys/ioctl.h>
 
-static void fdevent_subproc_event_func(int fd, unsigned ev,
-                                       void* /* userdata */)
-{
-
+static void fdevent_subproc_event_func(int fd, unsigned ev, void* /* userdata */) {
     D("subproc handling on fd = %d, ev = %x", fd, ev);
 
     CHECK_GE(fd, 0);
@@ -364,17 +356,18 @@ static void fdevent_subproc_event_func(int fd, unsigned ev,
     if (ev & FDE_READ) {
         int subproc_fd;
 
-        if(!ReadFdExactly(fd, &subproc_fd, sizeof(subproc_fd))) {
+        if (!ReadFdExactly(fd, &subproc_fd, sizeof(subproc_fd))) {
             LOG(FATAL) << "Failed to read the subproc's fd from " << fd;
         }
         auto it = g_poll_node_map.find(subproc_fd);
         if (it == g_poll_node_map.end()) {
             D("subproc_fd %d cleared from fd_table", subproc_fd);
-            adb_close(subproc_fd);
+            // fd was already closed by fdevent_remove — do NOT close it again,
+            // it may have been reused for a different socket.
             return;
         }
         fdevent* subproc_fde = it->second.fde;
-        if(subproc_fde->fd != subproc_fd) {
+        if (subproc_fde->fd != subproc_fd) {
             // Already reallocated?
             LOG(FATAL) << "subproc_fd(" << subproc_fd << ") != subproc_fde->fd(" << subproc_fde->fd
                        << ")";
@@ -395,7 +388,7 @@ static void fdevent_subproc_event_func(int fd, unsigned ev,
 
         D("subproc_fde %s", dump_fde(subproc_fde).c_str());
         subproc_fde->events |= FDE_READ;
-        if(subproc_fde->state & FDE_PENDING) {
+        if (subproc_fde->state & FDE_PENDING) {
             return;
         }
         subproc_fde->state |= FDE_PENDING;
@@ -403,28 +396,26 @@ static void fdevent_subproc_event_func(int fd, unsigned ev,
     }
 }
 
-void fdevent_subproc_setup()
-{
+void fdevent_subproc_setup() {
     int s[2];
 
-    if(adb_pipe(s)) {
+    if (adb_pipe(s)) {
         PLOG(FATAL) << "cannot create shell-exit pipe";
     }
     D("fdevent_subproc: pipe (%d, %d)", s[0], s[1]);
 
-    SHELL_EXIT_NOTIFY_FD = s[1];  // write end
-    fdevent *fde = fdevent_create(s[0], fdevent_subproc_event_func, NULL);  // read end
+    SHELL_EXIT_NOTIFY_FD = s[1];                                            // write end
+    fdevent* fde = fdevent_create(s[0], fdevent_subproc_event_func, NULL);  // read end
     CHECK(fde != nullptr) << "cannot create fdevent for shell-exit handler";
     fdevent_add(fde, FDE_READ);
 }
-#endif // !ADB_HOST
+#endif  // !ADB_HOST
 
-void fdevent_loop()
-{
+void fdevent_loop() {
     set_main_thread();
 #if !ADB_HOST
     fdevent_subproc_setup();
-#endif // !ADB_HOST
+#endif  // !ADB_HOST
 
     while (true) {
         if (terminate_loop) {

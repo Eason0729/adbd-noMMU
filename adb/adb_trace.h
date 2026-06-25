@@ -25,34 +25,31 @@
  * the adb_trace_init() function implemented in adb_trace.cpp.
  */
 enum AdbTrace {
-    ADB = 0,   /* 0x001 */
+    ADB = 0, /* 0x001 */
     SOCKETS,
     PACKETS,
     TRANSPORT,
-    RWX,       /* 0x010 */
+    RWX, /* 0x010 */
     USB,
     SYNC,
     SYSDEPS,
-    JDWP,      /* 0x100 */
+    JDWP, /* 0x100 */
     SERVICES,
     AUTH,
     FDEVENT,
     SHELL
 };
 
-#define VLOG_IS_ON(TAG) \
-    ((adb_trace_mask & (1 << (TAG))) != 0)
+#define VLOG_IS_ON(TAG) ((adb_trace_mask & (1 << (TAG))) != 0)
 
-#define VLOG(TAG)         \
+#define VLOG(TAG)                 \
     if (LIKELY(!VLOG_IS_ON(TAG))) \
-        ;                 \
-    else                  \
+        ;                         \
+    else                          \
         LOG(INFO)
 
 // You must define TRACE_TAG before using this macro.
-#define D(...) \
-    VLOG(TRACE_TAG) << android::base::StringPrintf(__VA_ARGS__)
-
+#define D(...) VLOG(TRACE_TAG) << android::base::StringPrintf(__VA_ARGS__)
 
 extern int adb_trace_mask;
 void adb_trace_init(char**);

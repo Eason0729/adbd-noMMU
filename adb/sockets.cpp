@@ -16,8 +16,6 @@
 
 #define TRACE_TAG SOCKETS
 
-#include "sysdeps.h"
-
 #include <ctype.h>
 #include <errno.h>
 #include <stdio.h>
@@ -29,6 +27,8 @@
 #include <mutex>
 #include <string>
 #include <vector>
+
+#include "sysdeps.h"
 
 #if !ADB_HOST
 #include "cutils/properties.h"
@@ -43,7 +43,8 @@ static std::recursive_mutex& local_socket_list_lock = *new std::recursive_mutex(
 static unsigned local_socket_next_id = 1;
 
 static asocket local_socket_list = {
-    .next = &local_socket_list, .prev = &local_socket_list,
+    .next = &local_socket_list,
+    .prev = &local_socket_list,
 };
 
 /* the the list of currently closing local sockets.
@@ -51,7 +52,8 @@ static asocket local_socket_list = {
 ** write to their fd.
 */
 static asocket local_socket_closing_list = {
-    .next = &local_socket_closing_list, .prev = &local_socket_closing_list,
+    .next = &local_socket_closing_list,
+    .prev = &local_socket_closing_list,
 };
 
 // Parse the global list of sockets to find one with id |local_id|.
@@ -239,7 +241,7 @@ static void local_socket_close(asocket* s) {
     }
 
     /* otherwise, put on the closing list
-    */
+     */
     D("LS(%d): closing", s->id);
     s->closing = 1;
     fdevent_del(&s->fde, FDE_READ);
@@ -432,8 +434,7 @@ asocket* create_local_service_socket(const char* name, const atransport* transpo
     }
 
     if ((!strncmp(name, "root:", 5) && getuid() != 0 && strcmp(debug, "1") == 0) ||
-        (!strncmp(name, "unroot:", 7) && getuid() == 0) ||
-        !strncmp(name, "usb:", 4) ||
+        (!strncmp(name, "unroot:", 7) && getuid() == 0) || !strncmp(name, "usb:", 4) ||
         !strncmp(name, "tcpip:", 6)) {
         D("LS(%d): enabling exit_on_close", s->id);
         s->exit_on_close = 1;

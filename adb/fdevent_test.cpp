@@ -57,7 +57,7 @@ class FdHandler {
             handler->queue_.pop();
             ASSERT_EQ(1, adb_write(fd, &c, 1));
             if (handler->queue_.empty()) {
-              fdevent_del(&handler->write_fde_, FDE_WRITE);
+                fdevent_del(&handler->write_fde_, FDE_WRITE);
             }
         }
     }

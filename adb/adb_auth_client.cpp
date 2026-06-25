@@ -16,41 +16,36 @@
 
 #define TRACE_TAG AUTH
 
-#include "sysdeps.h"
-#include "adb_auth.h"
-
 #include <resolv.h>
 #include <stdio.h>
 #include <string.h>
 
+#include "adb_auth.h"
+#include "sysdeps.h"
+
 #if !defined(ADB_NOMMU)
+#include <crypto_utils/android_pubkey.h>
 #include <openssl/obj_mac.h>
 #include <openssl/rsa.h>
 #include <openssl/sha.h>
-#include <crypto_utils/android_pubkey.h>
 #endif
 
 #if defined(ADB_NOMMU) && !defined(ADB_NOMMU_NO_CRYPTO)
 /* Simple base64 decode replacement for __b64_pton (BSD libc) on uClibc. */
 static const int8_t adb_b64_tbl[256] = {
-    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
-    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
-    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 62, -1, -1, -1, 63,
-    52, 53, 54, 55, 56, 57, 58, 59, 60, 61, -1, -1, -1, -1, -1, -1,
-    -1,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14,
-    15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, -1, -1, -1, -1, -1,
-    -1, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40,
-    41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, -1, -1, -1, -1, -1,
-    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
-    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
-    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
-    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
-    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
-    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
-    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 62, -1, -1, -1, 63,
+    52, 53, 54, 55, 56, 57, 58, 59, 60, 61, -1, -1, -1, -1, -1, -1, -1, 0,  1,  2,  3,  4,  5,  6,
+    7,  8,  9,  10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, -1, -1, -1, -1, -1,
+    -1, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48,
+    49, 50, 51, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
     -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
 };
-static int adb_b64_pton(const char *in, uint8_t *out, int outlen) {
+static int adb_b64_pton(const char* in, uint8_t* out, int outlen) {
     int val = 0, bits = 0, idx = 0;
     for (; *in; in++) {
         int8_t d = adb_b64_tbl[(unsigned char)*in];
@@ -69,10 +64,9 @@ static int adb_b64_pton(const char *in, uint8_t *out, int outlen) {
 #define adb_b64_pton(in, out, len) __b64_pton(in, out, len)
 #endif
 
+#include "adb.h"
 #include "cutils/list.h"
 #include "cutils/sockets.h"
-
-#include "adb.h"
 #include "fdevent.h"
 #include "transport.h"
 
@@ -81,7 +75,7 @@ static fdevent framework_fde;
 static int framework_fd = -1;
 
 static void usb_disconnected(void* unused, atransport* t);
-static const struct adisconnect usb_disconnect = { usb_disconnected, nullptr};
+static const struct adisconnect usb_disconnect = {usb_disconnected, nullptr};
 static atransport* usb_transport;
 static bool needs_retry = false;
 
@@ -92,17 +86,12 @@ struct adb_public_key {
     RSA* key;
 };
 
-static const char *key_paths[] = {
-    "/adb_keys",
-    "/data/misc/adb/adb_keys",
-    NULL
-};
+static const char* key_paths[] = {"/adb_keys", "/data/misc/adb/adb_keys", NULL};
 
-static void read_keys(const char *file, struct listnode *list)
-{
-    FILE *f;
+static void read_keys(const char* file, struct listnode* list) {
+    FILE* f;
     char buf[MAX_PAYLOAD_V1];
-    char *sep;
+    char* sep;
     int ret;
 
     f = fopen(file, "re");
@@ -112,16 +101,14 @@ static void read_keys(const char *file, struct listnode *list)
     }
 
     while (fgets(buf, sizeof(buf), f)) {
-        auto key = reinterpret_cast<adb_public_key*>(
-            calloc(1, sizeof(adb_public_key)));
+        auto key = reinterpret_cast<adb_public_key*>(calloc(1, sizeof(adb_public_key)));
         if (key == nullptr) {
             D("Can't malloc key");
             break;
         }
 
         sep = strpbrk(buf, " \t");
-        if (sep)
-            *sep = '\0';
+        if (sep) *sep = '\0';
 
         uint8_t keybuf[ANDROID_PUBKEY_ENCODED_SIZE + 1];
         ret = adb_b64_pton(buf, keybuf, sizeof(keybuf));
@@ -143,9 +130,8 @@ static void read_keys(const char *file, struct listnode *list)
     fclose(f);
 }
 
-static void free_keys(struct listnode *list)
-{
-    struct listnode *item;
+static void free_keys(struct listnode* list) {
+    struct listnode* item;
 
     while (!list_empty(list)) {
         item = list_head(list);
@@ -156,8 +142,7 @@ static void free_keys(struct listnode *list)
     }
 }
 
-static void load_keys(struct listnode *list)
-{
+static void load_keys(struct listnode* list) {
     const char* path;
     const char** paths = key_paths;
     struct stat buf;
@@ -172,9 +157,8 @@ static void load_keys(struct listnode *list)
     }
 }
 
-int adb_auth_verify(uint8_t* token, size_t token_size, uint8_t* sig, int siglen)
-{
-    struct listnode *item;
+int adb_auth_verify(uint8_t* token, size_t token_size, uint8_t* sig, int siglen) {
+    struct listnode* item;
     struct listnode key_list;
     int ret = 0;
 
@@ -183,8 +167,7 @@ int adb_auth_verify(uint8_t* token, size_t token_size, uint8_t* sig, int siglen)
     list_for_each(item, &key_list) {
         adb_public_key* key = node_to_item(item, struct adb_public_key, node);
         ret = RSA_verify(NID_sha1, token, token_size, sig, siglen, key->key);
-        if (ret)
-            break;
+        if (ret) break;
     }
 
     free_keys(&key_list);
@@ -192,24 +175,24 @@ int adb_auth_verify(uint8_t* token, size_t token_size, uint8_t* sig, int siglen)
     return ret;
 }
 
-#else // ADB_NOMMU — no crypto, deny all verification
+#else  // ADB_NOMMU — no crypto, deny all verification
 
-int adb_auth_verify(uint8_t* token, size_t token_size, uint8_t* sig, int siglen)
-{
-    (void)token; (void)token_size; (void)sig; (void)siglen;
+int adb_auth_verify(uint8_t* token, size_t token_size, uint8_t* sig, int siglen) {
+    (void)token;
+    (void)token_size;
+    (void)sig;
+    (void)siglen;
     return 0;
 }
 
 #endif
 
-int adb_auth_generate_token(void *token, size_t token_size)
-{
-    FILE *f;
+int adb_auth_generate_token(void* token, size_t token_size) {
+    FILE* f;
     int ret;
 
     f = fopen("/dev/urandom", "re");
-    if (!f)
-        return 0;
+    if (!f) return 0;
 
     ret = fread(token, token_size, 1, f);
 
@@ -245,8 +228,7 @@ static void adb_auth_event(int fd, unsigned events, void*) {
     }
 }
 
-void adb_auth_confirm_key(unsigned char *key, size_t len, atransport *t)
-{
+void adb_auth_confirm_key(unsigned char* key, size_t len, atransport* t) {
     ScratchBuf _msg_buf(MAX_PAYLOAD_V1);
     if (!_msg_buf.valid()) {
         D("Scratch allocation failed");

@@ -16,7 +16,6 @@
 
 #define TRACE_TAG ADB
 
-#include "sysdeps.h"
 #include "adb_auth.h"
 
 #include <errno.h>
@@ -26,14 +25,14 @@
 #include <unistd.h>
 
 #include "adb.h"
+#include "sysdeps.h"
 #include "transport.h"
 
 bool auth_required = true;
 
-void send_auth_request(atransport *t)
-{
+void send_auth_request(atransport* t) {
     D("Calling send_auth_request");
-    apacket *p;
+    apacket* p;
     int ret;
 
     ret = adb_auth_generate_token(t->token, sizeof(t->token));
@@ -50,10 +49,9 @@ void send_auth_request(atransport *t)
     send_packet(p, t);
 }
 
-void send_auth_response(uint8_t *token, size_t token_size, atransport *t)
-{
+void send_auth_response(uint8_t* token, size_t token_size, atransport* t) {
     D("Calling send_auth_response");
-    apacket *p = get_apacket();
+    apacket* p = get_apacket();
     int ret;
 
     ret = adb_auth_sign(t->key, token, token_size, p->data);
@@ -69,8 +67,7 @@ void send_auth_response(uint8_t *token, size_t token_size, atransport *t)
     send_packet(p, t);
 }
 
-void send_auth_publickey(atransport *t)
-{
+void send_auth_publickey(atransport* t) {
     D("Calling send_auth_publickey");
     std::string key = adb_auth_get_userkey();
     if (key.empty()) {
@@ -92,8 +89,7 @@ void send_auth_publickey(atransport *t)
     send_packet(p, t);
 }
 
-void adb_auth_verified(atransport *t)
-{
+void adb_auth_verified(atransport* t) {
     handle_online(t);
     send_connect(t);
 }

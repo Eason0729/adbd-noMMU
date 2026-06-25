@@ -18,8 +18,6 @@
 
 #ifndef ADB_NOMMU
 
-#include "sysdeps.h"
-
 #include <errno.h>
 #include <fcntl.h>
 #include <mntent.h>
@@ -32,6 +30,7 @@
 #include <string>
 
 #include "adb_io.h"
+#include "sysdeps.h"
 
 #if !ADB_NON_ANDROID
 
@@ -42,7 +41,7 @@
 
 // Returns the device used to mount a directory in /proc/mounts.
 static std::string find_proc_mount(const char* dir) {
-    std::unique_ptr<FILE, int(*)(FILE*)> fp(setmntent("/proc/mounts", "r"), endmntent);
+    std::unique_ptr<FILE, int (*)(FILE*)> fp(setmntent("/proc/mounts", "r"), endmntent);
     if (!fp) {
         return "";
     }
@@ -73,9 +72,9 @@ static std::string find_fstab_mount(const char* dir) {
 // /proc/mounts lists rootfs and /dev/root, neither of which is what we want.
 static std::string find_mount(const char* dir) {
     if (strcmp(dir, "/") == 0) {
-       return find_fstab_mount(dir);
+        return find_fstab_mount(dir);
     } else {
-       return find_proc_mount(dir);
+        return find_proc_mount(dir);
     }
 }
 
@@ -100,8 +99,8 @@ static bool remount_partition(int wfd, const char* dir) {
         return true;
     }
     if (!make_block_device_writable(dev)) {
-        WriteFdFmt(wfd, "remount of %s failed; couldn't make block device %s writable: %s\n",
-                  dir, dev.c_str(), strerror(errno));
+        WriteFdFmt(wfd, "remount of %s failed; couldn't make block device %s writable: %s\n", dir,
+                   dev.c_str(), strerror(errno));
         return false;
     }
     if (mount(dev.c_str(), dir, "none", MS_REMOUNT, nullptr) == -1) {
@@ -129,12 +128,9 @@ void remount_service(adb_channel ch, void* cookie) {
     if (system_verified || vendor_verified) {
         // Allow remount but warn of likely bad effects
         bool both = system_verified && vendor_verified;
-        WriteFdFmt(wfd,
-                   "dm_verity is enabled on the %s%s%s partition%s.\n",
-                   system_verified ? "system" : "",
-                   both ? " and " : "",
-                   vendor_verified ? "vendor" : "",
-                   both ? "s" : "");
+        WriteFdFmt(wfd, "dm_verity is enabled on the %s%s%s partition%s.\n",
+                   system_verified ? "system" : "", both ? " and " : "",
+                   vendor_verified ? "vendor" : "", both ? "s" : "");
         WriteFdExactly(wfd,
                        "Use \"adb disable-verity\" to disable verity.\n"
                        "If you do not, remount may succeed, however, you will still "
@@ -157,12 +153,10 @@ void remount_service(adb_channel ch, void* cookie) {
     adb_channel_close(&ch);
 }
 #else
-bool make_block_device_writable(const std::string&)
-{
+bool make_block_device_writable(const std::string&) {
     return false;
 }
-void remount_service(adb_channel ch, void* cookie)
-{
+void remount_service(adb_channel ch, void* cookie) {
     int wfd = ch.write_fd >= 0 ? ch.write_fd : ch.read_fd;
     WriteFdExactly(wfd, "remount failed, not implemented\n");
     adb_channel_close(&ch);

@@ -16,22 +16,20 @@
 
 #define TRACE_TAG ADB
 
-#include "sysdeps.h"
-
+#include <android-base/errors.h>
+#include <android-base/file.h>
+#include <android-base/logging.h>
+#include <android-base/stringprintf.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 
-#include <android-base/errors.h>
-#include <android-base/file.h>
-#include <android-base/logging.h>
-#include <android-base/stringprintf.h>
-
 #include "adb.h"
 #include "adb_auth.h"
 #include "adb_listeners.h"
 #include "adb_utils.h"
+#include "sysdeps.h"
 #include "transport.h"
 
 static std::string GetLogFilePath() {
@@ -145,8 +143,8 @@ int adb_server_main(int is_daemon, int server_port, int ack_reply_fd) {
                   android::base::SystemErrorCodeToString(GetLastError()).c_str());
         }
         if (written != bytes_to_write) {
-            fatal("adb: cannot write %lu bytes of ACK: only wrote %lu bytes",
-                  bytes_to_write, written);
+            fatal("adb: cannot write %lu bytes of ACK: only wrote %lu bytes", bytes_to_write,
+                  written);
         }
         CloseHandle(ack_reply_handle);
 #else

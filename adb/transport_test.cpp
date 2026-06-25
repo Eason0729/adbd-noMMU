@@ -21,17 +21,17 @@
 #include "adb.h"
 
 class TransportSetup {
-public:
-  TransportSetup() {
+  public:
+    TransportSetup() {
 #ifdef _WIN32
-    // Use extern instead of including sysdeps.h which brings in various macros
-    // that conflict with APIs used in this file.
-    extern void adb_sysdeps_init(void);
-    adb_sysdeps_init();
+        // Use extern instead of including sysdeps.h which brings in various macros
+        // that conflict with APIs used in this file.
+        extern void adb_sysdeps_init(void);
+        adb_sysdeps_init();
 #else
-    // adb_sysdeps_init() is an inline function that we cannot link against.
+        // adb_sysdeps_init() is an inline function that we cannot link against.
 #endif
-  }
+    }
 };
 
 // Static initializer will call adb_sysdeps_init() before main() to initialize
@@ -42,19 +42,19 @@ public:
 static TransportSetup g_TransportSetup;
 
 TEST(transport, kick_transport) {
-  atransport t;
-  static size_t kick_count;
-  kick_count = 0;
-  // Mutate some member so we can test that the function is run.
-  t.SetKickFunction([](atransport* trans) { kick_count++; });
-  ASSERT_FALSE(t.IsKicked());
-  t.Kick();
-  ASSERT_TRUE(t.IsKicked());
-  ASSERT_EQ(1u, kick_count);
-  // A transport can only be kicked once.
-  t.Kick();
-  ASSERT_TRUE(t.IsKicked());
-  ASSERT_EQ(1u, kick_count);
+    atransport t;
+    static size_t kick_count;
+    kick_count = 0;
+    // Mutate some member so we can test that the function is run.
+    t.SetKickFunction([](atransport* trans) { kick_count++; });
+    ASSERT_FALSE(t.IsKicked());
+    t.Kick();
+    ASSERT_TRUE(t.IsKicked());
+    ASSERT_EQ(1u, kick_count);
+    // A transport can only be kicked once.
+    t.Kick();
+    ASSERT_TRUE(t.IsKicked());
+    ASSERT_EQ(1u, kick_count);
 }
 
 static void DisconnectFunc(void* arg, atransport*) {
@@ -130,8 +130,7 @@ TEST(transport, parse_banner_no_features) {
 TEST(transport, parse_banner_product_features) {
     atransport t;
 
-    const char banner[] =
-        "host::ro.product.name=foo;ro.product.model=bar;ro.product.device=baz;";
+    const char banner[] = "host::ro.product.name=foo;ro.product.model=bar;ro.product.device=baz;";
     parse_banner(banner, &t);
 
     ASSERT_EQ(kCsHost, t.connection_state);

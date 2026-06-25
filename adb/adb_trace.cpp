@@ -14,17 +14,17 @@
  * limitations under the License.
  */
 
-#include "sysdeps.h"
 #include "adb_trace.h"
+
+#include <android-base/logging.h>
+#include <android-base/strings.h>
 
 #include <string>
 #include <unordered_map>
 #include <vector>
 
-#include <android-base/logging.h>
-#include <android-base/strings.h>
-
 #include "adb.h"
+#include "sysdeps.h"
 
 #if !ADB_HOST
 #include <cutils/properties.h>
@@ -40,15 +40,13 @@ const char* adb_device_banner = "host";
 static android::base::LogdLogger gLogdLogger;
 #endif
 
-void AdbLogger(android::base::LogId id, android::base::LogSeverity severity,
-               const char* tag, const char* file, unsigned int line,
-               const char* message) {
+void AdbLogger(android::base::LogId id, android::base::LogSeverity severity, const char* tag,
+               const char* file, unsigned int line, const char* message) {
     android::base::StderrLogger(id, severity, tag, file, line, message);
 #if !defined(ADB_HOST) && defined(__ANDROID__)
     gLogdLogger(id, severity, tag, file, line, message);
 #endif
 }
-
 
 #if !defined(ADB_HOST) && defined(__ANDROID__)
 static std::string get_log_file_name() {
@@ -61,13 +59,11 @@ static std::string get_log_file_name() {
     char timestamp[PATH_MAX];
     strftime(timestamp, sizeof(timestamp), "%Y-%m-%d-%H-%M-%S", &now);
 
-    return android::base::StringPrintf("/data/adb/adb-%s-%d", timestamp,
-                                       getpid());
+    return android::base::StringPrintf("/data/adb/adb-%s-%d", timestamp, getpid());
 }
 
 void start_device_log(void) {
-    int fd = unix_open(get_log_file_name().c_str(),
-                       O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0640);
+    int fd = unix_open(get_log_file_name().c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0640);
     if (fd == -1) {
         return;
     }
@@ -119,22 +115,21 @@ static void setup_trace_mask() {
         return;
     }
 
-    std::unordered_map<std::string, int> trace_flags = {
-        {"1", 0},
-        {"all", 0},
-        {"adb", ADB},
-        {"sockets", SOCKETS},
-        {"packets", PACKETS},
-        {"rwx", RWX},
-        {"usb", USB},
-        {"sync", SYNC},
-        {"sysdeps", SYSDEPS},
-        {"transport", TRANSPORT},
-        {"jdwp", JDWP},
-        {"services", SERVICES},
-        {"auth", AUTH},
-        {"fdevent", FDEVENT},
-        {"shell", SHELL}};
+    std::unordered_map<std::string, int> trace_flags = {{"1", 0},
+                                                        {"all", 0},
+                                                        {"adb", ADB},
+                                                        {"sockets", SOCKETS},
+                                                        {"packets", PACKETS},
+                                                        {"rwx", RWX},
+                                                        {"usb", USB},
+                                                        {"sync", SYNC},
+                                                        {"sysdeps", SYSDEPS},
+                                                        {"transport", TRANSPORT},
+                                                        {"jdwp", JDWP},
+                                                        {"services", SERVICES},
+                                                        {"auth", AUTH},
+                                                        {"fdevent", FDEVENT},
+                                                        {"shell", SHELL}};
 
     std::vector<std::string> elements = android::base::Split(trace_setting, " ");
     for (const auto& elem : elements) {

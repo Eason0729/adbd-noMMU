@@ -22,9 +22,8 @@
 
 #if defined(_WIN32)
 
-#include <windows.h>
-
 #include <android-base/macros.h>
+#include <windows.h>
 
 // The prebuilt version of mingw we use doesn't support condition_variable.
 // Therefore, implement our own using the Windows primitives.
@@ -40,7 +39,7 @@ class condition_variable {
     }
 
     void wait(std::unique_lock<std::mutex>& lock) {
-        std::mutex *m = lock.mutex();
+        std::mutex* m = lock.mutex();
         m->lock_count_--;
         SleepConditionVariableCS(&cond_, m->native_handle(), INFINITE);
         m->lock_count_++;
@@ -56,6 +55,6 @@ class condition_variable {
     DISALLOW_COPY_AND_ASSIGN(condition_variable);
 };
 
-}
+}  // namespace std
 
 #endif  // defined(_WIN32)

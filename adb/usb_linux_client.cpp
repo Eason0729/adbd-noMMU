@@ -16,8 +16,7 @@
 
 #define TRACE_TAG USB
 
-#include "sysdeps.h"
-
+#include <android-base/logging.h>
 #include <cutils/properties.h>
 #include <dirent.h>
 #include <errno.h>
@@ -33,14 +32,13 @@
 #include <algorithm>
 #include <atomic>
 
-#include <android-base/logging.h>
-
 #include "adb.h"
+#include "sysdeps.h"
 #include "transport.h"
 
-#define MAX_PACKET_SIZE_FS	64
-#define MAX_PACKET_SIZE_HS	512
-#define MAX_PACKET_SIZE_SS	1024
+#define MAX_PACKET_SIZE_FS 64
+#define MAX_PACKET_SIZE_HS 512
+#define MAX_PACKET_SIZE_SS 1024
 
 // Writes larger than 16k fail on some devices (seed with 3.10.49-g209ea2f in particular).
 #if defined(ADB_NOMMU)
@@ -57,22 +55,21 @@
 #define USB_FFS_MAX_READ 16384
 #endif
 
-#define cpu_to_le16(x)  htole16(x)
-#define cpu_to_le32(x)  htole32(x)
+#define cpu_to_le16(x) htole16(x)
+#define cpu_to_le32(x) htole32(x)
 
 static int dummy_fd = -1;
 
-struct usb_handle
-{
+struct usb_handle {
     adb_cond_t notify;
     adb_mutex_t lock;
     bool open_new_connection;
     std::atomic<bool> kicked;
 
-    int (*write)(usb_handle *h, const void *data, int len);
-    int (*read)(usb_handle *h, void *data, int len);
-    void (*kick)(usb_handle *h);
-    void (*close)(usb_handle *h);
+    int (*write)(usb_handle* h, const void* data, int len);
+    int (*read)(usb_handle* h, void* data, int len);
+    void (*kick)(usb_handle* h);
+    void (*close)(usb_handle* h);
 
     // Legacy f_adb
     int fd;
@@ -123,92 +120,103 @@ struct desc_v2 {
 #define STR_INTERFACE_ "ADB Interface"
 
 static const struct func_desc fs_descriptors = {
-    .intf = {
-        .bLength = sizeof(struct usb_interface_descriptor),
-        .bDescriptorType = USB_DT_INTERFACE,
-        .bInterfaceNumber = 0,
-        .bNumEndpoints = 2,
-        .bInterfaceClass = ADB_CLASS,
-        .bInterfaceSubClass = ADB_SUBCLASS,
-        .bInterfaceProtocol = ADB_PROTOCOL,
-        .iInterface = 1,
-    },
-    .source = {
-        .bLength = sizeof(struct usb_endpoint_descriptor_no_audio),
-        .bDescriptorType = USB_DT_ENDPOINT,
-        .bEndpointAddress = 1 | USB_DIR_OUT,
-        .bmAttributes = USB_ENDPOINT_XFER_BULK,
-        .wMaxPacketSize = MAX_PACKET_SIZE_FS,
-    },
-    .sink = {
-        .bLength = sizeof(struct usb_endpoint_descriptor_no_audio),
-        .bDescriptorType = USB_DT_ENDPOINT,
-        .bEndpointAddress = 2 | USB_DIR_IN,
-        .bmAttributes = USB_ENDPOINT_XFER_BULK,
-        .wMaxPacketSize = MAX_PACKET_SIZE_FS,
-    },
+    .intf =
+        {
+            .bLength = sizeof(struct usb_interface_descriptor),
+            .bDescriptorType = USB_DT_INTERFACE,
+            .bInterfaceNumber = 0,
+            .bNumEndpoints = 2,
+            .bInterfaceClass = ADB_CLASS,
+            .bInterfaceSubClass = ADB_SUBCLASS,
+            .bInterfaceProtocol = ADB_PROTOCOL,
+            .iInterface = 1,
+        },
+    .source =
+        {
+            .bLength = sizeof(struct usb_endpoint_descriptor_no_audio),
+            .bDescriptorType = USB_DT_ENDPOINT,
+            .bEndpointAddress = 1 | USB_DIR_OUT,
+            .bmAttributes = USB_ENDPOINT_XFER_BULK,
+            .wMaxPacketSize = MAX_PACKET_SIZE_FS,
+        },
+    .sink =
+        {
+            .bLength = sizeof(struct usb_endpoint_descriptor_no_audio),
+            .bDescriptorType = USB_DT_ENDPOINT,
+            .bEndpointAddress = 2 | USB_DIR_IN,
+            .bmAttributes = USB_ENDPOINT_XFER_BULK,
+            .wMaxPacketSize = MAX_PACKET_SIZE_FS,
+        },
 };
 
 static const struct func_desc hs_descriptors = {
-    .intf = {
-        .bLength = sizeof(struct usb_interface_descriptor),
-        .bDescriptorType = USB_DT_INTERFACE,
-        .bInterfaceNumber = 0,
-        .bNumEndpoints = 2,
-        .bInterfaceClass = ADB_CLASS,
-        .bInterfaceSubClass = ADB_SUBCLASS,
-        .bInterfaceProtocol = ADB_PROTOCOL,
-        .iInterface = 1,
-    },
-    .source = {
-        .bLength = sizeof(struct usb_endpoint_descriptor_no_audio),
-        .bDescriptorType = USB_DT_ENDPOINT,
-        .bEndpointAddress = 1 | USB_DIR_OUT,
-        .bmAttributes = USB_ENDPOINT_XFER_BULK,
-        .wMaxPacketSize = MAX_PACKET_SIZE_HS,
-    },
-    .sink = {
-        .bLength = sizeof(struct usb_endpoint_descriptor_no_audio),
-        .bDescriptorType = USB_DT_ENDPOINT,
-        .bEndpointAddress = 2 | USB_DIR_IN,
-        .bmAttributes = USB_ENDPOINT_XFER_BULK,
-        .wMaxPacketSize = MAX_PACKET_SIZE_HS,
-    },
+    .intf =
+        {
+            .bLength = sizeof(struct usb_interface_descriptor),
+            .bDescriptorType = USB_DT_INTERFACE,
+            .bInterfaceNumber = 0,
+            .bNumEndpoints = 2,
+            .bInterfaceClass = ADB_CLASS,
+            .bInterfaceSubClass = ADB_SUBCLASS,
+            .bInterfaceProtocol = ADB_PROTOCOL,
+            .iInterface = 1,
+        },
+    .source =
+        {
+            .bLength = sizeof(struct usb_endpoint_descriptor_no_audio),
+            .bDescriptorType = USB_DT_ENDPOINT,
+            .bEndpointAddress = 1 | USB_DIR_OUT,
+            .bmAttributes = USB_ENDPOINT_XFER_BULK,
+            .wMaxPacketSize = MAX_PACKET_SIZE_HS,
+        },
+    .sink =
+        {
+            .bLength = sizeof(struct usb_endpoint_descriptor_no_audio),
+            .bDescriptorType = USB_DT_ENDPOINT,
+            .bEndpointAddress = 2 | USB_DIR_IN,
+            .bmAttributes = USB_ENDPOINT_XFER_BULK,
+            .wMaxPacketSize = MAX_PACKET_SIZE_HS,
+        },
 };
 
 static const struct ss_func_desc ss_descriptors = {
-    .intf = {
-        .bLength = sizeof(struct usb_interface_descriptor),
-        .bDescriptorType = USB_DT_INTERFACE,
-        .bInterfaceNumber = 0,
-        .bNumEndpoints = 2,
-        .bInterfaceClass = ADB_CLASS,
-        .bInterfaceSubClass = ADB_SUBCLASS,
-        .bInterfaceProtocol = ADB_PROTOCOL,
-        .iInterface = 1,
-    },
-    .source = {
-        .bLength = sizeof(struct usb_endpoint_descriptor_no_audio),
-        .bDescriptorType = USB_DT_ENDPOINT,
-        .bEndpointAddress = 1 | USB_DIR_OUT,
-        .bmAttributes = USB_ENDPOINT_XFER_BULK,
-        .wMaxPacketSize = MAX_PACKET_SIZE_SS,
-    },
-    .source_comp = {
-        .bLength = sizeof(struct usb_ss_ep_comp_descriptor),
-        .bDescriptorType = USB_DT_SS_ENDPOINT_COMP,
-    },
-    .sink = {
-        .bLength = sizeof(struct usb_endpoint_descriptor_no_audio),
-        .bDescriptorType = USB_DT_ENDPOINT,
-        .bEndpointAddress = 2 | USB_DIR_IN,
-        .bmAttributes = USB_ENDPOINT_XFER_BULK,
-        .wMaxPacketSize = MAX_PACKET_SIZE_SS,
-    },
-    .sink_comp = {
-        .bLength = sizeof(struct usb_ss_ep_comp_descriptor),
-        .bDescriptorType = USB_DT_SS_ENDPOINT_COMP,
-    },
+    .intf =
+        {
+            .bLength = sizeof(struct usb_interface_descriptor),
+            .bDescriptorType = USB_DT_INTERFACE,
+            .bInterfaceNumber = 0,
+            .bNumEndpoints = 2,
+            .bInterfaceClass = ADB_CLASS,
+            .bInterfaceSubClass = ADB_SUBCLASS,
+            .bInterfaceProtocol = ADB_PROTOCOL,
+            .iInterface = 1,
+        },
+    .source =
+        {
+            .bLength = sizeof(struct usb_endpoint_descriptor_no_audio),
+            .bDescriptorType = USB_DT_ENDPOINT,
+            .bEndpointAddress = 1 | USB_DIR_OUT,
+            .bmAttributes = USB_ENDPOINT_XFER_BULK,
+            .wMaxPacketSize = MAX_PACKET_SIZE_SS,
+        },
+    .source_comp =
+        {
+            .bLength = sizeof(struct usb_ss_ep_comp_descriptor),
+            .bDescriptorType = USB_DT_SS_ENDPOINT_COMP,
+        },
+    .sink =
+        {
+            .bLength = sizeof(struct usb_endpoint_descriptor_no_audio),
+            .bDescriptorType = USB_DT_ENDPOINT,
+            .bEndpointAddress = 2 | USB_DIR_IN,
+            .bmAttributes = USB_ENDPOINT_XFER_BULK,
+            .wMaxPacketSize = MAX_PACKET_SIZE_SS,
+        },
+    .sink_comp =
+        {
+            .bLength = sizeof(struct usb_ss_ep_comp_descriptor),
+            .bDescriptorType = USB_DT_SS_ENDPOINT_COMP,
+        },
 };
 
 static const struct usb_ext_compat_desc os_desc_compat = {
@@ -235,20 +243,22 @@ static const struct {
         const char str1[sizeof(STR_INTERFACE_)];
     } __attribute__((packed)) lang0;
 } __attribute__((packed)) strings = {
-    .header = {
-        .magic = cpu_to_le32(FUNCTIONFS_STRINGS_MAGIC),
-        .length = cpu_to_le32(sizeof(strings)),
-        .str_count = cpu_to_le32(1),
-        .lang_count = cpu_to_le32(1),
-    },
-    .lang0 = {
-        cpu_to_le16(0x0409), /* en-us */
-        STR_INTERFACE_,
-    },
+    .header =
+        {
+            .magic = cpu_to_le32(FUNCTIONFS_STRINGS_MAGIC),
+            .length = cpu_to_le32(sizeof(strings)),
+            .str_count = cpu_to_le32(1),
+            .lang_count = cpu_to_le32(1),
+        },
+    .lang0 =
+        {
+            cpu_to_le16(0x0409), /* en-us */
+            STR_INTERFACE_,
+        },
 };
 
 static void usb_adb_open_thread(void* x) {
-    struct usb_handle *usb = (struct usb_handle *)x;
+    struct usb_handle* usb = (struct usb_handle*)x;
     int fd;
 
     adb_thread_setname("usb open");
@@ -287,15 +297,13 @@ static void usb_adb_open_thread(void* x) {
     abort();
 }
 
-static int usb_adb_write(usb_handle *h, const void *data, int len)
-{
+static int usb_adb_write(usb_handle* h, const void* data, int len) {
     int n;
 
     D("about to write (fd=%d, len=%d)", h->fd, len);
     n = unix_write(h->fd, data, len);
-    if(n != len) {
-        D("ERROR: fd = %d, n = %d, errno = %d (%s)",
-            h->fd, n, errno, strerror(errno));
+    if (n != len) {
+        D("ERROR: fd = %d, n = %d, errno = %d (%s)", h->fd, n, errno, strerror(errno));
         return -1;
     }
     if (h->kicked) {
@@ -306,8 +314,7 @@ static int usb_adb_write(usb_handle *h, const void *data, int len)
     return 0;
 }
 
-static int usb_adb_read(usb_handle *h, void *data, int len)
-{
+static int usb_adb_read(usb_handle* h, void* data, int len) {
     D("about to read (fd=%d, len=%d)", h->fd, len);
     while (len > 0) {
         // The kernel implementation of adb_read in f_adb.c doesn't support
@@ -316,8 +323,7 @@ static int usb_adb_read(usb_handle *h, void *data, int len)
         int bytes_to_read = len < 4096 ? len : 4096;
         int n = unix_read(h->fd, data, bytes_to_read);
         if (n != bytes_to_read) {
-            D("ERROR: fd = %d, n = %d, errno = %d (%s)",
-                h->fd, n, errno, strerror(errno));
+            D("ERROR: fd = %d, n = %d, errno = %d (%s)", h->fd, n, errno, strerror(errno));
             return -1;
         }
         if (h->kicked) {
@@ -331,7 +337,7 @@ static int usb_adb_read(usb_handle *h, void *data, int len)
     return 0;
 }
 
-static void usb_adb_kick(usb_handle *h) {
+static void usb_adb_kick(usb_handle* h) {
     D("usb_kick");
     // Other threads may be calling usb_adb_read/usb_adb_write at the same time.
     // If we close h->fd, the file descriptor will be reused to open other files,
@@ -342,7 +348,7 @@ static void usb_adb_kick(usb_handle *h) {
     TEMP_FAILURE_RETRY(dup2(dummy_fd, h->fd));
 }
 
-static void usb_adb_close(usb_handle *h) {
+static void usb_adb_close(usb_handle* h) {
     h->kicked = false;
     adb_close(h->fd);
     // Notify usb_adb_open_thread to open a new connection.
@@ -352,8 +358,7 @@ static void usb_adb_close(usb_handle *h) {
     adb_mutex_unlock(&h->lock);
 }
 
-static void usb_adb_init()
-{
+static void usb_adb_init() {
     usb_handle* h = reinterpret_cast<usb_handle*>(calloc(1, sizeof(usb_handle)));
     if (h == nullptr) fatal("couldn't allocate usb_handle");
 
@@ -375,7 +380,7 @@ static void usb_adb_init()
     // and when we are not.
     int fd = unix_open("/dev/android_adb_enable", O_RDWR);
     if (fd < 0) {
-       D("failed to open /dev/android_adb_enable");
+        D("failed to open /dev/android_adb_enable");
     } else {
         close_on_exec(fd);
     }
@@ -386,9 +391,7 @@ static void usb_adb_init()
     }
 }
 
-
-static bool init_functionfs(struct usb_handle *h)
-{
+static bool init_functionfs(struct usb_handle* h) {
     ssize_t ret;
     struct desc_v1 v1_descriptor;
     struct desc_v2 v2_descriptor;
@@ -468,7 +471,7 @@ err:
 }
 
 static void usb_ffs_open_thread(void* x) {
-    struct usb_handle *usb = (struct usb_handle *)x;
+    struct usb_handle* usb = (struct usb_handle*)x;
 
     adb_thread_setname("usb ffs open");
 
@@ -535,8 +538,7 @@ static int usb_ffs_read(usb_handle* h, void* data, int len) {
     return 0;
 }
 
-static void usb_ffs_kick(usb_handle *h)
-{
+static void usb_ffs_kick(usb_handle* h) {
     int err;
 
     err = ioctl(h->bulk_in, FUNCTIONFS_CLEAR_HALT);
@@ -558,7 +560,7 @@ static void usb_ffs_kick(usb_handle *h)
     TEMP_FAILURE_RETRY(dup2(dummy_fd, h->bulk_in));
 }
 
-static void usb_ffs_close(usb_handle *h) {
+static void usb_ffs_close(usb_handle* h) {
     h->kicked = false;
     adb_close(h->bulk_out);
     adb_close(h->bulk_in);
@@ -570,8 +572,7 @@ static void usb_ffs_close(usb_handle *h) {
     adb_mutex_unlock(&h->lock);
 }
 
-static void usb_ffs_init()
-{
+static void usb_ffs_init() {
     D("[ usb_init - using FunctionFS ]");
 
     usb_handle* h = reinterpret_cast<usb_handle*>(calloc(1, sizeof(usb_handle)));
@@ -596,8 +597,7 @@ static void usb_ffs_init()
     }
 }
 
-void usb_init()
-{
+void usb_init() {
     dummy_fd = adb_open("/dev/null", O_WRONLY);
     CHECK_NE(dummy_fd, -1);
     if (access(USB_FFS_ADB_EP0, F_OK) == 0)
@@ -606,22 +606,18 @@ void usb_init()
         usb_adb_init();
 }
 
-int usb_write(usb_handle *h, const void *data, int len)
-{
+int usb_write(usb_handle* h, const void* data, int len) {
     return h->write(h, data, len);
 }
 
-int usb_read(usb_handle *h, void *data, int len)
-{
+int usb_read(usb_handle* h, void* data, int len) {
     return h->read(h, data, len);
 }
-int usb_close(usb_handle *h)
-{
+int usb_close(usb_handle* h) {
     h->close(h);
     return 0;
 }
 
-void usb_kick(usb_handle *h)
-{
+void usb_kick(usb_handle* h) {
     h->kick(h);
 }

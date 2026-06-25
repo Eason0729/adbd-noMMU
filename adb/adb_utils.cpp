@@ -18,6 +18,10 @@
 
 #include "adb_utils.h"
 
+#include <android-base/logging.h>
+#include <android-base/parseint.h>
+#include <android-base/stringprintf.h>
+#include <android-base/strings.h>
 #include <libgen.h>
 #include <stdlib.h>
 #include <sys/stat.h>
@@ -26,21 +30,16 @@
 
 #include <algorithm>
 
-#include <android-base/logging.h>
-#include <android-base/parseint.h>
-#include <android-base/stringprintf.h>
-#include <android-base/strings.h>
-
 #include "adb.h"
 #include "adb_trace.h"
 #include "sysdeps.h"
 
 #ifdef _WIN32
-#  ifndef WIN32_LEAN_AND_MEAN
-#    define WIN32_LEAN_AND_MEAN
-#  endif
-#  include "windows.h"
-#  include "shlobj.h"
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include "shlobj.h"
+#include "windows.h"
 #endif
 
 ADB_MUTEX_DEFINE(basename_lock);
@@ -65,139 +64,139 @@ void close_stdin() {
 }
 
 bool getcwd(std::string* s) {
-  char* cwd = getcwd(nullptr, 0);
-  if (cwd != nullptr) *s = cwd;
-  free(cwd);
-  return (cwd != nullptr);
+    char* cwd = getcwd(nullptr, 0);
+    if (cwd != nullptr) *s = cwd;
+    free(cwd);
+    return (cwd != nullptr);
 }
 
 bool directory_exists(const std::string& path) {
-  struct stat sb;
-  return lstat(path.c_str(), &sb) != -1 && S_ISDIR(sb.st_mode);
+    struct stat sb;
+    return lstat(path.c_str(), &sb) != -1 && S_ISDIR(sb.st_mode);
 }
 
 std::string escape_arg(const std::string& s) {
-  std::string result = s;
+    std::string result = s;
 
-  // Escape any ' in the string (before we single-quote the whole thing).
-  // The correct way to do this for the shell is to replace ' with '\'' --- that is,
-  // close the existing single-quoted string, escape a single single-quote, and start
-  // a new single-quoted string. Like the C preprocessor, the shell will concatenate
-  // these pieces into one string.
-  for (size_t i = 0; i < s.size(); ++i) {
-    if (s[i] == '\'') {
-      result.insert(i, "'\\'");
-      i += 2;
+    // Escape any ' in the string (before we single-quote the whole thing).
+    // The correct way to do this for the shell is to replace ' with '\'' --- that is,
+    // close the existing single-quoted string, escape a single single-quote, and start
+    // a new single-quoted string. Like the C preprocessor, the shell will concatenate
+    // these pieces into one string.
+    for (size_t i = 0; i < s.size(); ++i) {
+        if (s[i] == '\'') {
+            result.insert(i, "'\\'");
+            i += 2;
+        }
     }
-  }
 
-  // Prefix and suffix the whole string with '.
-  result.insert(result.begin(), '\'');
-  result.push_back('\'');
-  return result;
+    // Prefix and suffix the whole string with '.
+    result.insert(result.begin(), '\'');
+    result.push_back('\'');
+    return result;
 }
 
 std::string adb_basename(const std::string& path) {
-  // Copy path because basename may modify the string passed in.
-  std::string result(path);
+    // Copy path because basename may modify the string passed in.
+    std::string result(path);
 
-  // Use lock because basename() may write to a process global and return a
-  // pointer to that. Note that this locking strategy only works if all other
-  // callers to dirname in the process also grab this same lock.
-  adb_mutex_lock(&basename_lock);
+    // Use lock because basename() may write to a process global and return a
+    // pointer to that. Note that this locking strategy only works if all other
+    // callers to dirname in the process also grab this same lock.
+    adb_mutex_lock(&basename_lock);
 
-  // Note that if std::string uses copy-on-write strings, &str[0] will cause
-  // the copy to be made, so there is no chance of us accidentally writing to
-  // the storage for 'path'.
-  char* name = basename(&result[0]);
+    // Note that if std::string uses copy-on-write strings, &str[0] will cause
+    // the copy to be made, so there is no chance of us accidentally writing to
+    // the storage for 'path'.
+    char* name = basename(&result[0]);
 
-  // In case dirname returned a pointer to a process global, copy that string
-  // before leaving the lock.
-  result.assign(name);
+    // In case dirname returned a pointer to a process global, copy that string
+    // before leaving the lock.
+    result.assign(name);
 
-  adb_mutex_unlock(&basename_lock);
+    adb_mutex_unlock(&basename_lock);
 
-  return result;
+    return result;
 }
 
 std::string adb_dirname(const std::string& path) {
-  // Copy path because dirname may modify the string passed in.
-  std::string result(path);
+    // Copy path because dirname may modify the string passed in.
+    std::string result(path);
 
-  // Use lock because dirname() may write to a process global and return a
-  // pointer to that. Note that this locking strategy only works if all other
-  // callers to dirname in the process also grab this same lock.
-  adb_mutex_lock(&dirname_lock);
+    // Use lock because dirname() may write to a process global and return a
+    // pointer to that. Note that this locking strategy only works if all other
+    // callers to dirname in the process also grab this same lock.
+    adb_mutex_lock(&dirname_lock);
 
-  // Note that if std::string uses copy-on-write strings, &str[0] will cause
-  // the copy to be made, so there is no chance of us accidentally writing to
-  // the storage for 'path'.
-  char* parent = dirname(&result[0]);
+    // Note that if std::string uses copy-on-write strings, &str[0] will cause
+    // the copy to be made, so there is no chance of us accidentally writing to
+    // the storage for 'path'.
+    char* parent = dirname(&result[0]);
 
-  // In case dirname returned a pointer to a process global, copy that string
-  // before leaving the lock.
-  result.assign(parent);
+    // In case dirname returned a pointer to a process global, copy that string
+    // before leaving the lock.
+    result.assign(parent);
 
-  adb_mutex_unlock(&dirname_lock);
+    adb_mutex_unlock(&dirname_lock);
 
-  return result;
+    return result;
 }
 
 // Given a relative or absolute filepath, create the directory hierarchy
 // as needed. Returns true if the hierarchy is/was setup.
 bool mkdirs(const std::string& path) {
-  // TODO: all the callers do unlink && mkdirs && adb_creat ---
-  // that's probably the operation we should expose.
+    // TODO: all the callers do unlink && mkdirs && adb_creat ---
+    // that's probably the operation we should expose.
 
-  // Implementation Notes:
-  //
-  // Pros:
-  // - Uses dirname, so does not need to deal with OS_PATH_SEPARATOR.
-  // - On Windows, uses mingw dirname which accepts '/' and '\\', drive letters
-  //   (C:\foo), UNC paths (\\server\share\dir\dir\file), and Unicode (when
-  //   combined with our adb_mkdir() which takes UTF-8).
-  // - Is optimistic wrt thinking that a deep directory hierarchy will exist.
-  //   So it does as few stat()s as possible before doing mkdir()s.
-  // Cons:
-  // - Recursive, so it uses stack space relative to number of directory
-  //   components.
+    // Implementation Notes:
+    //
+    // Pros:
+    // - Uses dirname, so does not need to deal with OS_PATH_SEPARATOR.
+    // - On Windows, uses mingw dirname which accepts '/' and '\\', drive letters
+    //   (C:\foo), UNC paths (\\server\share\dir\dir\file), and Unicode (when
+    //   combined with our adb_mkdir() which takes UTF-8).
+    // - Is optimistic wrt thinking that a deep directory hierarchy will exist.
+    //   So it does as few stat()s as possible before doing mkdir()s.
+    // Cons:
+    // - Recursive, so it uses stack space relative to number of directory
+    //   components.
 
-  // If path points to a symlink to a directory, that's fine.
-  struct stat sb;
-  if (stat(path.c_str(), &sb) != -1 && S_ISDIR(sb.st_mode)) {
-    return true;
-  }
-
-  const std::string parent(adb_dirname(path));
-
-  // If dirname returned the same path as what we passed in, don't go recursive.
-  // This can happen on Windows when walking up the directory hierarchy and not
-  // finding anything that already exists (unlike POSIX that will eventually
-  // find . or /).
-  if (parent == path) {
-    errno = ENOENT;
-    return false;
-  }
-
-  // Recursively make parent directories of 'path'.
-  if (!mkdirs(parent)) {
-    return false;
-  }
-
-  // Now that the parent directory hierarchy of 'path' has been ensured,
-  // create path itself.
-  if (adb_mkdir(path, 0775) == -1) {
-    const int saved_errno = errno;
-    // If someone else created the directory, that is ok.
-    if (directory_exists(path)) {
-      return true;
+    // If path points to a symlink to a directory, that's fine.
+    struct stat sb;
+    if (stat(path.c_str(), &sb) != -1 && S_ISDIR(sb.st_mode)) {
+        return true;
     }
-    // There might be a pre-existing file at 'path', or there might have been some other error.
-    errno = saved_errno;
-    return false;
-  }
 
-  return true;
+    const std::string parent(adb_dirname(path));
+
+    // If dirname returned the same path as what we passed in, don't go recursive.
+    // This can happen on Windows when walking up the directory hierarchy and not
+    // finding anything that already exists (unlike POSIX that will eventually
+    // find . or /).
+    if (parent == path) {
+        errno = ENOENT;
+        return false;
+    }
+
+    // Recursively make parent directories of 'path'.
+    if (!mkdirs(parent)) {
+        return false;
+    }
+
+    // Now that the parent directory hierarchy of 'path' has been ensured,
+    // create path itself.
+    if (adb_mkdir(path, 0775) == -1) {
+        const int saved_errno = errno;
+        // If someone else created the directory, that is ok.
+        if (directory_exists(path)) {
+            return true;
+        }
+        // There might be a pre-existing file at 'path', or there might have been some other error.
+        errno = saved_errno;
+        return false;
+    }
+
+    return true;
 }
 
 std::string dump_hex(const void* data, size_t byte_count) {

@@ -14,16 +14,14 @@
  * limitations under the License.
  */
 
-#include "shell_service.h"
-
 #include <string.h>
 
 #include <algorithm>
 
 #include "adb_io.h"
+#include "shell_service.h"
 
-ShellProtocol::ShellProtocol(int read_fd, int write_fd)
-    : read_fd_(read_fd), write_fd_(write_fd) {
+ShellProtocol::ShellProtocol(int read_fd, int write_fd) : read_fd_(read_fd), write_fd_(write_fd) {
     buffer_[0] = kIdInvalid;
 }
 

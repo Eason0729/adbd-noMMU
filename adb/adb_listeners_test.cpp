@@ -16,10 +16,9 @@
 
 #include "adb_listeners.h"
 
-#include <gtest/gtest.h>
-
 #include <android-base/stringprintf.h>
 #include <android-base/strings.h>
+#include <gtest/gtest.h>
 
 #include "fdevent.h"
 #include "sysdeps.h"
@@ -32,10 +31,8 @@ static bool listener_is_installed(const std::string& serial, const std::string& 
     // format_listeners() gives lines of "<serial> <source> <dest>\n".
     for (const std::string& line : android::base::Split(format_listeners(), "\n")) {
         std::vector<std::string> info = android::base::Split(line, " ");
-        if (info.size() == 3 &&
-                (serial.empty() || info[0] == serial) &&
-                (source.empty() || info[1] == source) &&
-                (dest.empty() || info[2] == dest)) {
+        if (info.size() == 3 && (serial.empty() || info[0] == serial) &&
+            (source.empty() || info[1] == source) && (dest.empty() || info[2] == dest)) {
             return true;
         }
     }

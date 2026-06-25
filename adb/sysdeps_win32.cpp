@@ -16,14 +16,17 @@
 
 #define TRACE_TAG SYSDEPS
 
-#include "sysdeps.h"
-
-#include <winsock2.h> /* winsock.h *must* be included before windows.h. */
-#include <windows.h>
-
+#include <android-base/errors.h>
+#include <android-base/logging.h>
+#include <android-base/stringprintf.h>
+#include <android-base/strings.h>
+#include <android-base/utf8.h>
+#include <cutils/sockets.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <windows.h>
+#include <winsock2.h> /* winsock.h *must* be included before windows.h. */
 
 #include <algorithm>
 #include <memory>
@@ -31,18 +34,11 @@
 #include <unordered_map>
 #include <vector>
 
-#include <cutils/sockets.h>
-
-#include <android-base/errors.h>
-#include <android-base/logging.h>
-#include <android-base/stringprintf.h>
-#include <android-base/strings.h>
-#include <android-base/utf8.h>
-
 #include "adb.h"
 #include "adb_utils.h"
+#include "sysdeps.h"
 
-extern void fatal(const char *fmt, ...);
+extern void fatal(const char* fmt, ...);
 
 /* forward declarations */
 
@@ -65,11 +61,7 @@ static int _fh_file_read(FH, void*, int);
 static int _fh_file_write(FH, const void*, int);
 
 static const FHClassRec _fh_file_class = {
-    _fh_file_init,
-    _fh_file_close,
-    _fh_file_lseek,
-    _fh_file_read,
-    _fh_file_write,
+    _fh_file_init, _fh_file_close, _fh_file_lseek, _fh_file_read, _fh_file_write,
 };
 
 static void _fh_socket_init(FH);
@@ -79,11 +71,7 @@ static int _fh_socket_read(FH, void*, int);
 static int _fh_socket_write(FH, const void*, int);
 
 static const FHClassRec _fh_socket_class = {
-    _fh_socket_init,
-    _fh_socket_close,
-    _fh_socket_lseek,
-    _fh_socket_read,
-    _fh_socket_write,
+    _fh_socket_init, _fh_socket_close, _fh_socket_lseek, _fh_socket_read, _fh_socket_write,
 };
 
 #define assert(cond)                                                                       \
@@ -115,42 +103,38 @@ void handle_deleter::operator()(HANDLE h) {
 /**************************************************************************/
 /**************************************************************************/
 
-typedef struct FHRec_
-{
-    FHClass    clazz;
-    int        used;
-    int        eof;
+typedef struct FHRec_ {
+    FHClass clazz;
+    int used;
+    int eof;
     union {
-        HANDLE      handle;
-        SOCKET      socket;
+        HANDLE handle;
+        SOCKET socket;
     } u;
 
-    int       mask;
+    int mask;
 
-    char  name[32];
+    char name[32];
 
 } FHRec;
 
-#define  fh_handle  u.handle
-#define  fh_socket  u.socket
+#define fh_handle u.handle
+#define fh_socket u.socket
 
-#define  WIN32_FH_BASE    2048
-#define  WIN32_MAX_FHS    2048
+#define WIN32_FH_BASE 2048
+#define WIN32_MAX_FHS 2048
 
-static adb_mutex_t   _win32_lock;
-static  FHRec        _win32_fhs[ WIN32_MAX_FHS ];
-static  int          _win32_fh_next;  // where to start search for free FHRec
+static adb_mutex_t _win32_lock;
+static FHRec _win32_fhs[WIN32_MAX_FHS];
+static int _win32_fh_next;  // where to start search for free FHRec
 
-static FH
-_fh_from_int( int   fd, const char*   func )
-{
-    FH  f;
+static FH _fh_from_int(int fd, const char* func) {
+    FH f;
 
     fd -= WIN32_FH_BASE;
 
     if (fd < 0 || fd >= WIN32_MAX_FHS) {
-        D( "_fh_from_int: invalid fd %d passed to %s", fd + WIN32_FH_BASE,
-           func );
+        D("_fh_from_int: invalid fd %d passed to %s", fd + WIN32_FH_BASE, func);
         errno = EBADF;
         return NULL;
     }
@@ -158,8 +142,7 @@ _fh_from_int( int   fd, const char*   func )
     f = &_win32_fhs[fd];
 
     if (f->used == 0) {
-        D( "_fh_from_int: invalid fd %d passed to %s", fd + WIN32_FH_BASE,
-           func );
+        D("_fh_from_int: invalid fd %d passed to %s", fd + WIN32_FH_BASE, func);
         errno = EBADF;
         return NULL;
     }
@@ -167,22 +150,17 @@ _fh_from_int( int   fd, const char*   func )
     return f;
 }
 
-
-static int
-_fh_to_int( FH  f )
-{
+static int _fh_to_int(FH f) {
     if (f && f->used && f >= _win32_fhs && f < _win32_fhs + WIN32_MAX_FHS)
         return (int)(f - _win32_fhs) + WIN32_FH_BASE;
 
     return -1;
 }
 
-static FH
-_fh_alloc( FHClass  clazz )
-{
-    FH   f = NULL;
+static FH _fh_alloc(FHClass clazz) {
+    FH f = NULL;
 
-    adb_mutex_lock( &_win32_lock );
+    adb_mutex_lock(&_win32_lock);
 
     for (int i = _win32_fh_next; i < WIN32_MAX_FHS; ++i) {
         if (_win32_fhs[i].clazz == NULL) {
@@ -191,24 +169,21 @@ _fh_alloc( FHClass  clazz )
             goto Exit;
         }
     }
-    D( "_fh_alloc: no more free file descriptors" );
-    errno = EMFILE;   // Too many open files
+    D("_fh_alloc: no more free file descriptors");
+    errno = EMFILE;  // Too many open files
 Exit:
     if (f) {
-        f->clazz   = clazz;
-        f->used    = 1;
-        f->eof     = 0;
+        f->clazz = clazz;
+        f->used = 1;
+        f->eof = 0;
         f->name[0] = '\0';
         clazz->_fh_init(f);
     }
-    adb_mutex_unlock( &_win32_lock );
+    adb_mutex_unlock(&_win32_lock);
     return f;
 }
 
-
-static int
-_fh_close( FH   f )
-{
+static int _fh_close(FH f) {
     // Use lock so that closing only happens once and so that _fh_alloc can't
     // allocate a FH that we're in the middle of closing.
     adb_mutex_lock(&_win32_lock);
@@ -219,11 +194,11 @@ _fh_close( FH   f )
     }
 
     if (f->used) {
-        f->clazz->_fh_close( f );
+        f->clazz->_fh_close(f);
         f->name[0] = '\0';
-        f->eof     = 0;
-        f->used    = 0;
-        f->clazz   = NULL;
+        f->eof = 0;
+        f->used = 0;
+        f->clazz = NULL;
     }
     adb_mutex_unlock(&_win32_lock);
     return 0;
@@ -231,16 +206,16 @@ _fh_close( FH   f )
 
 // Deleter for unique_fh.
 class fh_deleter {
- public:
-  void operator()(struct FHRec_* fh) {
-    // We're called from a destructor and destructors should not overwrite
-    // errno because callers may do:
-    //   errno = EBLAH;
-    //   return -1; // calls destructor, which should not overwrite errno
-    const int saved_errno = errno;
-    _fh_close(fh);
-    errno = saved_errno;
-  }
+  public:
+    void operator()(struct FHRec_* fh) {
+        // We're called from a destructor and destructors should not overwrite
+        // errno because callers may do:
+        //   errno = EBLAH;
+        //   return -1; // calls destructor, which should not overwrite errno
+        const int saved_errno = errno;
+        _fh_close(fh);
+        errno = saved_errno;
+    }
 };
 
 // Like std::unique_ptr, but calls _fh_close() instead of operator delete().
@@ -254,21 +229,21 @@ typedef std::unique_ptr<struct FHRec_, fh_deleter> unique_fh;
 /**************************************************************************/
 /**************************************************************************/
 
-static void _fh_file_init( FH  f ) {
+static void _fh_file_init(FH f) {
     f->fh_handle = INVALID_HANDLE_VALUE;
 }
 
-static int _fh_file_close( FH  f ) {
-    CloseHandle( f->fh_handle );
+static int _fh_file_close(FH f) {
+    CloseHandle(f->fh_handle);
     f->fh_handle = INVALID_HANDLE_VALUE;
     return 0;
 }
 
-static int _fh_file_read( FH  f,  void*  buf, int   len ) {
-    DWORD  read_bytes;
+static int _fh_file_read(FH f, void* buf, int len) {
+    DWORD read_bytes;
 
-    if ( !ReadFile( f->fh_handle, buf, (DWORD)len, &read_bytes, NULL ) ) {
-        D( "adb_read: could not read %d bytes from %s", len, f->name );
+    if (!ReadFile(f->fh_handle, buf, (DWORD)len, &read_bytes, NULL)) {
+        D("adb_read: could not read %d bytes from %s", len, f->name);
         errno = EIO;
         return -1;
     } else if (read_bytes < (DWORD)len) {
@@ -277,34 +252,39 @@ static int _fh_file_read( FH  f,  void*  buf, int   len ) {
     return (int)read_bytes;
 }
 
-static int _fh_file_write( FH  f,  const void*  buf, int   len ) {
-    DWORD  wrote_bytes;
+static int _fh_file_write(FH f, const void* buf, int len) {
+    DWORD wrote_bytes;
 
-    if ( !WriteFile( f->fh_handle, buf, (DWORD)len, &wrote_bytes, NULL ) ) {
-        D( "adb_file_write: could not write %d bytes from %s", len, f->name );
+    if (!WriteFile(f->fh_handle, buf, (DWORD)len, &wrote_bytes, NULL)) {
+        D("adb_file_write: could not write %d bytes from %s", len, f->name);
         errno = EIO;
         return -1;
     } else if (wrote_bytes < (DWORD)len) {
         f->eof = 1;
     }
-    return  (int)wrote_bytes;
+    return (int)wrote_bytes;
 }
 
-static int _fh_file_lseek( FH  f, int  pos, int  origin ) {
-    DWORD  method;
-    DWORD  result;
+static int _fh_file_lseek(FH f, int pos, int origin) {
+    DWORD method;
+    DWORD result;
 
-    switch (origin)
-    {
-        case SEEK_SET:  method = FILE_BEGIN; break;
-        case SEEK_CUR:  method = FILE_CURRENT; break;
-        case SEEK_END:  method = FILE_END; break;
+    switch (origin) {
+        case SEEK_SET:
+            method = FILE_BEGIN;
+            break;
+        case SEEK_CUR:
+            method = FILE_CURRENT;
+            break;
+        case SEEK_END:
+            method = FILE_END;
+            break;
         default:
             errno = EINVAL;
             return -1;
     }
 
-    result = SetFilePointer( f->fh_handle, pos, NULL, method );
+    result = SetFilePointer(f->fh_handle, pos, NULL, method);
     if (result == INVALID_SET_FILE_POINTER) {
         errno = EIO;
         return -1;
@@ -314,7 +294,6 @@ static int _fh_file_lseek( FH  f, int  pos, int  origin ) {
     return (int)result;
 }
 
-
 /**************************************************************************/
 /**************************************************************************/
 /*****                                                                *****/
@@ -323,12 +302,11 @@ static int _fh_file_lseek( FH  f, int  pos, int  origin ) {
 /**************************************************************************/
 /**************************************************************************/
 
-int  adb_open(const char*  path, int  options)
-{
-    FH  f;
+int adb_open(const char* path, int options) {
+    FH f;
 
-    DWORD  desiredAccess       = 0;
-    DWORD  shareMode           = FILE_SHARE_READ | FILE_SHARE_WRITE;
+    DWORD desiredAccess = 0;
+    DWORD shareMode = FILE_SHARE_READ | FILE_SHARE_WRITE;
 
     switch (options) {
         case O_RDONLY:
@@ -346,8 +324,8 @@ int  adb_open(const char*  path, int  options)
             return -1;
     }
 
-    f = _fh_alloc( &_fh_file_class );
-    if ( !f ) {
+    f = _fh_alloc(&_fh_file_class);
+    if (!f) {
         return -1;
     }
 
@@ -355,21 +333,21 @@ int  adb_open(const char*  path, int  options)
     if (!android::base::UTF8ToWide(path, &path_wide)) {
         return -1;
     }
-    f->fh_handle = CreateFileW( path_wide.c_str(), desiredAccess, shareMode,
-                                NULL, OPEN_EXISTING, 0, NULL );
+    f->fh_handle =
+        CreateFileW(path_wide.c_str(), desiredAccess, shareMode, NULL, OPEN_EXISTING, 0, NULL);
 
-    if ( f->fh_handle == INVALID_HANDLE_VALUE ) {
+    if (f->fh_handle == INVALID_HANDLE_VALUE) {
         const DWORD err = GetLastError();
         _fh_close(f);
-        D( "adb_open: could not open '%s': ", path );
+        D("adb_open: could not open '%s': ", path);
         switch (err) {
             case ERROR_FILE_NOT_FOUND:
-                D( "file not found" );
+                D("file not found");
                 errno = ENOENT;
                 return -1;
 
             case ERROR_PATH_NOT_FOUND:
-                D( "path not found" );
+                D("path not found");
                 errno = ENOTDIR;
                 return -1;
 
@@ -380,18 +358,17 @@ int  adb_open(const char*  path, int  options)
         }
     }
 
-    snprintf( f->name, sizeof(f->name), "%d(%s)", _fh_to_int(f), path );
-    D( "adb_open: '%s' => fd %d", path, _fh_to_int(f) );
+    snprintf(f->name, sizeof(f->name), "%d(%s)", _fh_to_int(f), path);
+    D("adb_open: '%s' => fd %d", path, _fh_to_int(f));
     return _fh_to_int(f);
 }
 
 /* ignore mode on Win32 */
-int  adb_creat(const char*  path, int  mode)
-{
-    FH  f;
+int adb_creat(const char* path, int mode) {
+    FH f;
 
-    f = _fh_alloc( &_fh_file_class );
-    if ( !f ) {
+    f = _fh_alloc(&_fh_file_class);
+    if (!f) {
         return -1;
     }
 
@@ -399,23 +376,21 @@ int  adb_creat(const char*  path, int  mode)
     if (!android::base::UTF8ToWide(path, &path_wide)) {
         return -1;
     }
-    f->fh_handle = CreateFileW( path_wide.c_str(), GENERIC_WRITE,
-                                FILE_SHARE_READ | FILE_SHARE_WRITE,
-                                NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL,
-                                NULL );
+    f->fh_handle = CreateFileW(path_wide.c_str(), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                               NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
 
-    if ( f->fh_handle == INVALID_HANDLE_VALUE ) {
+    if (f->fh_handle == INVALID_HANDLE_VALUE) {
         const DWORD err = GetLastError();
         _fh_close(f);
-        D( "adb_creat: could not open '%s': ", path );
+        D("adb_creat: could not open '%s': ", path);
         switch (err) {
             case ERROR_FILE_NOT_FOUND:
-                D( "file not found" );
+                D("file not found");
                 errno = ENOENT;
                 return -1;
 
             case ERROR_PATH_NOT_FOUND:
-                D( "path not found" );
+                D("path not found");
                 errno = ENOTDIR;
                 return -1;
 
@@ -425,27 +400,23 @@ int  adb_creat(const char*  path, int  mode)
                 return -1;
         }
     }
-    snprintf( f->name, sizeof(f->name), "%d(%s)", _fh_to_int(f), path );
-    D( "adb_creat: '%s' => fd %d", path, _fh_to_int(f) );
+    snprintf(f->name, sizeof(f->name), "%d(%s)", _fh_to_int(f), path);
+    D("adb_creat: '%s' => fd %d", path, _fh_to_int(f));
     return _fh_to_int(f);
 }
 
-
-int  adb_read(int  fd, void* buf, int len)
-{
-    FH     f = _fh_from_int(fd, __func__);
+int adb_read(int fd, void* buf, int len) {
+    FH f = _fh_from_int(fd, __func__);
 
     if (f == NULL) {
         return -1;
     }
 
-    return f->clazz->_fh_read( f, buf, len );
+    return f->clazz->_fh_read(f, buf, len);
 }
 
-
-int  adb_write(int  fd, const void*  buf, int  len)
-{
-    FH     f = _fh_from_int(fd, __func__);
+int adb_write(int fd, const void* buf, int len) {
+    FH f = _fh_from_int(fd, __func__);
 
     if (f == NULL) {
         return -1;
@@ -454,10 +425,8 @@ int  adb_write(int  fd, const void*  buf, int  len)
     return f->clazz->_fh_write(f, buf, len);
 }
 
-
-int  adb_lseek(int  fd, int  pos, int  where)
-{
-    FH     f = _fh_from_int(fd, __func__);
+int adb_lseek(int fd, int pos, int where) {
+    FH f = _fh_from_int(fd, __func__);
 
     if (!f) {
         return -1;
@@ -466,16 +435,14 @@ int  adb_lseek(int  fd, int  pos, int  where)
     return f->clazz->_fh_lseek(f, pos, where);
 }
 
-
-int  adb_close(int  fd)
-{
-    FH   f = _fh_from_int(fd, __func__);
+int adb_close(int fd) {
+    FH f = _fh_from_int(fd, __func__);
 
     if (!f) {
         return -1;
     }
 
-    D( "adb_close: %s", f->name);
+    D("adb_close: %s", f->name);
     _fh_close(f);
     return 0;
 }
@@ -487,7 +454,7 @@ char* adb_strerror(int err) {
     // want to call the real C Runtime strerror().
 #pragma push_macro("strerror")
 #undef strerror
-    const int saved_err = errno;      // Save because we overwrite it later.
+    const int saved_err = errno;  // Save because we overwrite it later.
 
     // Lookup the string for an unknown error.
     char* errmsg = strerror(-1);
@@ -504,19 +471,22 @@ char* adb_strerror(int err) {
         switch (err) {
 #pragma push_macro("ERR")
 #undef ERR
-#define ERR(errnum, desc) case errnum: custom_msg = desc; break
+#define ERR(errnum, desc)  \
+    case errnum:           \
+        custom_msg = desc; \
+        break
             // These error strings are from AOSP bionic/libc/include/sys/_errdefs.h.
             // Note that these cannot be longer than 94 characters because we
             // pass this to _strerror() which has that requirement.
-            ERR(ECONNRESET,    "Connection reset by peer");
-            ERR(EHOSTUNREACH,  "No route to host");
-            ERR(ENETDOWN,      "Network is down");
-            ERR(ENETRESET,     "Network dropped connection because of reset");
-            ERR(ENOBUFS,       "No buffer space available");
-            ERR(ENOPROTOOPT,   "Protocol not available");
-            ERR(ENOTCONN,      "Transport endpoint is not connected");
-            ERR(ENOTSOCK,      "Socket operation on non-socket");
-            ERR(EOPNOTSUPP,    "Operation not supported on transport endpoint");
+            ERR(ECONNRESET, "Connection reset by peer");
+            ERR(EHOSTUNREACH, "No route to host");
+            ERR(ENETDOWN, "Network is down");
+            ERR(ENETRESET, "Network dropped connection because of reset");
+            ERR(ENOBUFS, "No buffer space available");
+            ERR(ENOPROTOOPT, "Protocol not available");
+            ERR(ENOTCONN, "Transport endpoint is not connected");
+            ERR(ENOTSOCK, "Socket operation on non-socket");
+            ERR(EOPNOTSUPP, "Operation not supported on transport endpoint");
 #pragma pop_macro("ERR")
         }
 
@@ -531,8 +501,7 @@ char* adb_strerror(int err) {
             // Just in case _strerror() returned a read-only string, check if
             // the returned string starts with our custom message because that
             // implies that the string is not read-only.
-            if ((errmsg != nullptr) &&
-                !strncmp(custom_msg, errmsg, custom_msg_len)) {
+            if ((errmsg != nullptr) && !strncmp(custom_msg, errmsg, custom_msg_len)) {
                 // _strerror() puts other text after our custom message, so
                 // remove that by terminating after our message.
                 errmsg[custom_msg_len] = '\0';
@@ -565,43 +534,72 @@ char* adb_strerror(int err) {
 
 #undef setsockopt
 
-static void _socket_set_errno( const DWORD err ) {
+static void _socket_set_errno(const DWORD err) {
     // Because the Windows C Runtime (MSVCRT.DLL) strerror() does not support a
     // lot of POSIX and socket error codes, some of the resulting error codes
     // are mapped to strings by adb_strerror() above.
-    switch ( err ) {
-    case 0:              errno = 0; break;
-    // Don't map WSAEINTR since that is only for Winsock 1.1 which we don't use.
-    // case WSAEINTR:    errno = EINTR; break;
-    case WSAEFAULT:      errno = EFAULT; break;
-    case WSAEINVAL:      errno = EINVAL; break;
-    case WSAEMFILE:      errno = EMFILE; break;
-    // Mapping WSAEWOULDBLOCK to EAGAIN is absolutely critical because
-    // non-blocking sockets can cause an error code of WSAEWOULDBLOCK and
-    // callers check specifically for EAGAIN.
-    case WSAEWOULDBLOCK: errno = EAGAIN; break;
-    case WSAENOTSOCK:    errno = ENOTSOCK; break;
-    case WSAENOPROTOOPT: errno = ENOPROTOOPT; break;
-    case WSAEOPNOTSUPP:  errno = EOPNOTSUPP; break;
-    case WSAENETDOWN:    errno = ENETDOWN; break;
-    case WSAENETRESET:   errno = ENETRESET; break;
-    // Map WSAECONNABORTED to EPIPE instead of ECONNABORTED because POSIX seems
-    // to use EPIPE for these situations and there are some callers that look
-    // for EPIPE.
-    case WSAECONNABORTED: errno = EPIPE; break;
-    case WSAECONNRESET:  errno = ECONNRESET; break;
-    case WSAENOBUFS:     errno = ENOBUFS; break;
-    case WSAENOTCONN:    errno = ENOTCONN; break;
-    // Don't map WSAETIMEDOUT because we don't currently use SO_RCVTIMEO or
-    // SO_SNDTIMEO which would cause WSAETIMEDOUT to be returned. Future
-    // considerations: Reportedly send() can return zero on timeout, and POSIX
-    // code may expect EAGAIN instead of ETIMEDOUT on timeout.
-    // case WSAETIMEDOUT: errno = ETIMEDOUT; break;
-    case WSAEHOSTUNREACH: errno = EHOSTUNREACH; break;
-    default:
-        errno = EINVAL;
-        D( "_socket_set_errno: mapping Windows error code %lu to errno %d",
-           err, errno );
+    switch (err) {
+        case 0:
+            errno = 0;
+            break;
+        // Don't map WSAEINTR since that is only for Winsock 1.1 which we don't use.
+        // case WSAEINTR:    errno = EINTR; break;
+        case WSAEFAULT:
+            errno = EFAULT;
+            break;
+        case WSAEINVAL:
+            errno = EINVAL;
+            break;
+        case WSAEMFILE:
+            errno = EMFILE;
+            break;
+        // Mapping WSAEWOULDBLOCK to EAGAIN is absolutely critical because
+        // non-blocking sockets can cause an error code of WSAEWOULDBLOCK and
+        // callers check specifically for EAGAIN.
+        case WSAEWOULDBLOCK:
+            errno = EAGAIN;
+            break;
+        case WSAENOTSOCK:
+            errno = ENOTSOCK;
+            break;
+        case WSAENOPROTOOPT:
+            errno = ENOPROTOOPT;
+            break;
+        case WSAEOPNOTSUPP:
+            errno = EOPNOTSUPP;
+            break;
+        case WSAENETDOWN:
+            errno = ENETDOWN;
+            break;
+        case WSAENETRESET:
+            errno = ENETRESET;
+            break;
+        // Map WSAECONNABORTED to EPIPE instead of ECONNABORTED because POSIX seems
+        // to use EPIPE for these situations and there are some callers that look
+        // for EPIPE.
+        case WSAECONNABORTED:
+            errno = EPIPE;
+            break;
+        case WSAECONNRESET:
+            errno = ECONNRESET;
+            break;
+        case WSAENOBUFS:
+            errno = ENOBUFS;
+            break;
+        case WSAENOTCONN:
+            errno = ENOTCONN;
+            break;
+        // Don't map WSAETIMEDOUT because we don't currently use SO_RCVTIMEO or
+        // SO_SNDTIMEO which would cause WSAETIMEDOUT to be returned. Future
+        // considerations: Reportedly send() can return zero on timeout, and POSIX
+        // code may expect EAGAIN instead of ETIMEDOUT on timeout.
+        // case WSAETIMEDOUT: errno = ETIMEDOUT; break;
+        case WSAEHOSTUNREACH:
+            errno = EHOSTUNREACH;
+            break;
+        default:
+            errno = EINVAL;
+            D("_socket_set_errno: mapping Windows error code %lu to errno %d", err, errno);
     }
 }
 
@@ -617,10 +615,7 @@ extern int adb_poll(adb_pollfd* fds, size_t nfds, int timeout) {
             fds[i].revents = POLLNVAL;
             ++skipped;
         } else {
-            WSAPOLLFD wsapollfd = {
-                .fd = fh->u.socket,
-                .events = static_cast<short>(fds[i].events)
-            };
+            WSAPOLLFD wsapollfd = {.fd = fh->u.socket, .events = static_cast<short>(fds[i].events)};
             sockets.push_back(wsapollfd);
             original.push_back(&fds[i]);
         }
@@ -655,10 +650,10 @@ extern int adb_poll(adb_pollfd* fds, size_t nfds, int timeout) {
 
 static void _fh_socket_init(FH f) {
     f->fh_socket = INVALID_SOCKET;
-    f->mask      = 0;
+    f->mask = 0;
 }
 
-static int _fh_socket_close( FH  f ) {
+static int _fh_socket_close(FH f) {
     if (f->fh_socket != INVALID_SOCKET) {
         /* gently tell any peer that we're closing the socket */
         if (shutdown(f->fh_socket, SD_BOTH) == SOCKET_ERROR) {
@@ -680,13 +675,13 @@ static int _fh_socket_close( FH  f ) {
     return 0;
 }
 
-static int _fh_socket_lseek( FH  f, int pos, int origin ) {
+static int _fh_socket_lseek(FH f, int pos, int origin) {
     errno = EPIPE;
     return -1;
 }
 
 static int _fh_socket_read(FH f, void* buf, int len) {
-    int  result = recv(f->fh_socket, reinterpret_cast<char*>(buf), len, 0);
+    int result = recv(f->fh_socket, reinterpret_cast<char*>(buf), len, 0);
     if (result == SOCKET_ERROR) {
         const DWORD err = WSAGetLastError();
         // WSAEWOULDBLOCK is normal with a non-blocking socket, so don't trace
@@ -698,11 +693,11 @@ static int _fh_socket_read(FH f, void* buf, int len) {
         _socket_set_errno(err);
         result = -1;
     }
-    return  result;
+    return result;
 }
 
 static int _fh_socket_write(FH f, const void* buf, int len) {
-    int  result = send(f->fh_socket, reinterpret_cast<const char*>(buf), len, 0);
+    int result = send(f->fh_socket, reinterpret_cast<const char*>(buf), len, 0);
     if (result == SOCKET_ERROR) {
         const DWORD err = WSAGetLastError();
         // WSAEWOULDBLOCK is normal with a non-blocking socket, so don't trace
@@ -716,9 +711,8 @@ static int _fh_socket_write(FH f, const void* buf, int len) {
     } else {
         // According to https://code.google.com/p/chromium/issues/detail?id=27870
         // Winsock Layered Service Providers may cause this.
-        CHECK_LE(result, len) << "Tried to write " << len << " bytes to "
-                              << f->name << ", but " << result
-                              << " bytes reportedly written";
+        CHECK_LE(result, len) << "Tried to write " << len << " bytes to " << f->name << ", but "
+                              << result << " bytes reportedly written";
     }
     return result;
 }
@@ -733,16 +727,14 @@ static int _fh_socket_write(FH f, const void* buf, int len) {
 
 #include <winsock2.h>
 
-static int  _winsock_init;
+static int _winsock_init;
 
-static void
-_init_winsock( void )
-{
+static void _init_winsock(void) {
     // TODO: Multiple threads calling this may potentially cause multiple calls
     // to WSAStartup() which offers no real benefit.
     if (!_winsock_init) {
-        WSADATA  wsaData;
-        int      rc = WSAStartup( MAKEWORD(2,2), &wsaData);
+        WSADATA wsaData;
+        int rc = WSAStartup(MAKEWORD(2, 2), &wsaData);
         if (rc != 0) {
             fatal("adb: could not initialize Winsock: %s",
                   android::base::SystemErrorCodeToString(rc).c_str());
@@ -992,45 +984,42 @@ int network_connect(const std::string& host, int port, int type, int timeout, st
 }
 
 #undef accept
-int  adb_socket_accept(int  serverfd, struct sockaddr*  addr, socklen_t  *addrlen)
-{
-    FH   serverfh = _fh_from_int(serverfd, __func__);
+int adb_socket_accept(int serverfd, struct sockaddr* addr, socklen_t* addrlen) {
+    FH serverfh = _fh_from_int(serverfd, __func__);
 
-    if ( !serverfh || serverfh->clazz != &_fh_socket_class ) {
+    if (!serverfh || serverfh->clazz != &_fh_socket_class) {
         D("adb_socket_accept: invalid fd %d", serverfd);
         errno = EBADF;
         return -1;
     }
 
-    unique_fh fh(_fh_alloc( &_fh_socket_class ));
+    unique_fh fh(_fh_alloc(&_fh_socket_class));
     if (!fh) {
         PLOG(ERROR) << "adb_socket_accept: failed to allocate accepted socket "
                        "descriptor";
         return -1;
     }
 
-    fh->fh_socket = accept( serverfh->fh_socket, addr, addrlen );
+    fh->fh_socket = accept(serverfh->fh_socket, addr, addrlen);
     if (fh->fh_socket == INVALID_SOCKET) {
         const DWORD err = WSAGetLastError();
-        LOG(ERROR) << "adb_socket_accept: accept on fd " << serverfd <<
-                      " failed: " + android::base::SystemErrorCodeToString(err);
-        _socket_set_errno( err );
+        LOG(ERROR) << "adb_socket_accept: accept on fd " << serverfd
+                   << " failed: " + android::base::SystemErrorCodeToString(err);
+        _socket_set_errno(err);
         return -1;
     }
 
     const int fd = _fh_to_int(fh.get());
-    snprintf( fh->name, sizeof(fh->name), "%d(accept:%s)", fd, serverfh->name );
-    D( "adb_socket_accept on fd %d returns fd %d", serverfd, fd );
+    snprintf(fh->name, sizeof(fh->name), "%d(accept:%s)", fd, serverfh->name);
+    D("adb_socket_accept on fd %d returns fd %d", serverfd, fd);
     fh.release();
-    return  fd;
+    return fd;
 }
 
+int adb_setsockopt(int fd, int level, int optname, const void* optval, socklen_t optlen) {
+    FH fh = _fh_from_int(fd, __func__);
 
-int  adb_setsockopt( int  fd, int  level, int  optname, const void*  optval, socklen_t  optlen )
-{
-    FH   fh = _fh_from_int(fd, __func__);
-
-    if ( !fh || fh->clazz != &_fh_socket_class ) {
+    if (!fh || fh->clazz != &_fh_socket_class) {
         D("adb_setsockopt: invalid fd %d", fd);
         errno = EBADF;
         return -1;
@@ -1040,13 +1029,13 @@ int  adb_setsockopt( int  fd, int  level, int  optname, const void*  optval, soc
     // to set SOL_SOCKET, SO_SNDBUF/SO_RCVBUF, ignore it since the OS has
     // auto-tuning.
 
-    int result = setsockopt( fh->fh_socket, level, optname,
-                             reinterpret_cast<const char*>(optval), optlen );
-    if ( result == SOCKET_ERROR ) {
+    int result =
+        setsockopt(fh->fh_socket, level, optname, reinterpret_cast<const char*>(optval), optlen);
+    if (result == SOCKET_ERROR) {
         const DWORD err = WSAGetLastError();
-        D("adb_setsockopt: setsockopt on fd %d level %d optname %d failed: %s\n",
-          fd, level, optname, android::base::SystemErrorCodeToString(err).c_str());
-        _socket_set_errno( err );
+        D("adb_setsockopt: setsockopt on fd %d level %d optname %d failed: %s\n", fd, level,
+          optname, android::base::SystemErrorCodeToString(err).c_str());
+        _socket_set_errno(err);
         result = -1;
     }
     return result;
@@ -1090,9 +1079,8 @@ int adb_socket_get_local_port(int fd) {
     return ntohs(reinterpret_cast<sockaddr_in*>(&addr_storage)->sin_port);
 }
 
-int  adb_shutdown(int  fd)
-{
-    FH   f = _fh_from_int(fd, __func__);
+int adb_shutdown(int fd) {
+    FH f = _fh_from_int(fd, __func__);
 
     if (!f || f->clazz != &_fh_socket_class) {
         D("adb_shutdown: invalid fd %d", fd);
@@ -1100,7 +1088,7 @@ int  adb_shutdown(int  fd)
         return -1;
     }
 
-    D( "adb_shutdown: %s", f->name);
+    D("adb_shutdown: %s", f->name);
     if (shutdown(f->fh_socket, SD_BOTH) == SOCKET_ERROR) {
         const DWORD err = WSAGetLastError();
         D("socket shutdown fd %d failed: %s", fd,
@@ -1211,13 +1199,11 @@ bool set_tcp_keepalive(int fd, int interval_sec) {
 
 static adb_mutex_t g_console_output_buffer_lock;
 
-void
-adb_sysdeps_init( void )
-{
-#define  ADB_MUTEX(x)  InitializeCriticalSection( & x );
+void adb_sysdeps_init(void) {
+#define ADB_MUTEX(x) InitializeCriticalSection(&x);
 #include "mutex_list.h"
-    InitializeCriticalSection( &_win32_lock );
-    InitializeCriticalSection( &g_console_output_buffer_lock );
+    InitializeCriticalSection(&_win32_lock);
+    InitializeCriticalSection(&g_console_output_buffer_lock);
 }
 
 /**************************************************************************/
@@ -1258,7 +1244,7 @@ adb_sysdeps_init( void )
 // Returns a console HANDLE if |fd| is a console, otherwise returns nullptr.
 // If a valid HANDLE is returned and |mode| is not null, |mode| is also filled
 // with the console mode. Requires GENERIC_READ access to the underlying HANDLE.
-static HANDLE _get_console_handle(int fd, DWORD* mode=nullptr) {
+static HANDLE _get_console_handle(int fd, DWORD* mode = nullptr) {
     // First check isatty(); this is very fast and eliminates most non-console
     // FDs, but returns 1 for both consoles and character devices like NUL.
 #pragma push_macro("isatty")
@@ -1311,11 +1297,11 @@ static bool _get_key_event_record(const HANDLE console, INPUT_RECORD* const inpu
             return false;
         }
 
-        if (read_count == 0) {   // should be impossible
+        if (read_count == 0) {  // should be impossible
             fatal("ReadConsoleInputA returned 0");
         }
 
-        if (read_count != 1) {   // should be impossible
+        if (read_count != 1) {  // should be impossible
             fatal("ReadConsoleInputA did not return one input record");
         }
 
@@ -1331,11 +1317,11 @@ static bool _get_key_event_record(const HANDLE console, INPUT_RECORD* const inpu
             return false;
         }
 
-        if ((input_record->EventType == KEY_EVENT) &&
-            (input_record->Event.KeyEvent.bKeyDown)) {
+        if ((input_record->EventType == KEY_EVENT) && (input_record->Event.KeyEvent.bKeyDown)) {
             if (input_record->Event.KeyEvent.wRepeatCount == 0) {
-                fatal("ReadConsoleInputA returned a key event with zero repeat"
-                      " count");
+                fatal(
+                    "ReadConsoleInputA returned a key event with zero repeat"
+                    " count");
             }
 
             // Got an interesting INPUT_RECORD, so return
@@ -1371,42 +1357,38 @@ static __inline__ bool _is_enhanced_key(const DWORD control_key_state) {
 // Constants from MSDN for ToAscii().
 static const BYTE TOASCII_KEY_OFF = 0x00;
 static const BYTE TOASCII_KEY_DOWN = 0x80;
-static const BYTE TOASCII_KEY_TOGGLED_ON = 0x01;   // for CapsLock
+static const BYTE TOASCII_KEY_TOGGLED_ON = 0x01;  // for CapsLock
 
 // Given a key event, ignore a modifier key and return the character that was
 // entered without the modifier. Writes to *ch and returns the number of bytes
 // written.
-static size_t _get_char_ignoring_modifier(char* const ch,
-    const KEY_EVENT_RECORD* const key_event, const DWORD control_key_state,
-    const WORD modifier) {
+static size_t _get_char_ignoring_modifier(char* const ch, const KEY_EVENT_RECORD* const key_event,
+                                          const DWORD control_key_state, const WORD modifier) {
     // If there is no character from Windows, try ignoring the specified
     // modifier and look for a character. Note that if AltGr is being used,
     // there will be a character from Windows.
     if (key_event->uChar.AsciiChar == '\0') {
         // Note that we read the control key state from the passed in argument
         // instead of from key_event since the argument has been normalized.
-        if (((modifier == VK_SHIFT)   &&
-            _is_shift_pressed(control_key_state)) ||
-            ((modifier == VK_CONTROL) &&
-            _is_ctrl_pressed(control_key_state)) ||
-            ((modifier == VK_MENU)    && _is_alt_pressed(control_key_state))) {
-
-            BYTE key_state[256]   = {0};
-            key_state[VK_SHIFT]   = _is_shift_pressed(control_key_state) ?
-                TOASCII_KEY_DOWN : TOASCII_KEY_OFF;
-            key_state[VK_CONTROL] = _is_ctrl_pressed(control_key_state)  ?
-                TOASCII_KEY_DOWN : TOASCII_KEY_OFF;
-            key_state[VK_MENU]    = _is_alt_pressed(control_key_state)   ?
-                TOASCII_KEY_DOWN : TOASCII_KEY_OFF;
-            key_state[VK_CAPITAL] = _is_capslock_on(control_key_state)   ?
-                TOASCII_KEY_TOGGLED_ON : TOASCII_KEY_OFF;
+        if (((modifier == VK_SHIFT) && _is_shift_pressed(control_key_state)) ||
+            ((modifier == VK_CONTROL) && _is_ctrl_pressed(control_key_state)) ||
+            ((modifier == VK_MENU) && _is_alt_pressed(control_key_state))) {
+            BYTE key_state[256] = {0};
+            key_state[VK_SHIFT] =
+                _is_shift_pressed(control_key_state) ? TOASCII_KEY_DOWN : TOASCII_KEY_OFF;
+            key_state[VK_CONTROL] =
+                _is_ctrl_pressed(control_key_state) ? TOASCII_KEY_DOWN : TOASCII_KEY_OFF;
+            key_state[VK_MENU] =
+                _is_alt_pressed(control_key_state) ? TOASCII_KEY_DOWN : TOASCII_KEY_OFF;
+            key_state[VK_CAPITAL] =
+                _is_capslock_on(control_key_state) ? TOASCII_KEY_TOGGLED_ON : TOASCII_KEY_OFF;
 
             // cause this modifier to be ignored
-            key_state[modifier]   = TOASCII_KEY_OFF;
+            key_state[modifier] = TOASCII_KEY_OFF;
 
             WORD translated = 0;
-            if (ToAscii(key_event->wVirtualKeyCode,
-                key_event->wVirtualScanCode, key_state, &translated, 0) == 1) {
+            if (ToAscii(key_event->wVirtualKeyCode, key_event->wVirtualScanCode, key_state,
+                        &translated, 0) == 1) {
                 // Ignoring the modifier, we found a character.
                 *ch = (CHAR)translated;
                 return 1;
@@ -1430,72 +1412,70 @@ static size_t _get_char_ignoring_modifier(char* const ch,
 // because it is the default key-sequence to switch the input language.
 // This is configurable in the Region and Language control panel.
 static __inline__ size_t _get_non_control_char(char* const ch,
-    const KEY_EVENT_RECORD* const key_event, const DWORD control_key_state) {
-    return _get_char_ignoring_modifier(ch, key_event, control_key_state,
-        VK_CONTROL);
+                                               const KEY_EVENT_RECORD* const key_event,
+                                               const DWORD control_key_state) {
+    return _get_char_ignoring_modifier(ch, key_event, control_key_state, VK_CONTROL);
 }
 
 // Get without Alt.
-static __inline__ size_t _get_non_alt_char(char* const ch,
-    const KEY_EVENT_RECORD* const key_event, const DWORD control_key_state) {
-    return _get_char_ignoring_modifier(ch, key_event, control_key_state,
-        VK_MENU);
+static __inline__ size_t _get_non_alt_char(char* const ch, const KEY_EVENT_RECORD* const key_event,
+                                           const DWORD control_key_state) {
+    return _get_char_ignoring_modifier(ch, key_event, control_key_state, VK_MENU);
 }
 
 // Ignore the control key, find the character from Windows, and apply any
 // Control key mappings (for example, Ctrl-2 is a NULL character). Writes to
 // *pch and returns number of bytes written.
-static size_t _get_control_character(char* const pch,
-    const KEY_EVENT_RECORD* const key_event, const DWORD control_key_state) {
-    const size_t len = _get_non_control_char(pch, key_event,
-        control_key_state);
+static size_t _get_control_character(char* const pch, const KEY_EVENT_RECORD* const key_event,
+                                     const DWORD control_key_state) {
+    const size_t len = _get_non_control_char(pch, key_event, control_key_state);
 
     if ((len == 1) && _is_ctrl_pressed(control_key_state)) {
         char ch = *pch;
         switch (ch) {
-        case '2':
-        case '@':
-        case '`':
-            ch = '\0';
-            break;
-        case '3':
-        case '[':
-        case '{':
-            ch = '\x1b';
-            break;
-        case '4':
-        case '\\':
-        case '|':
-            ch = '\x1c';
-            break;
-        case '5':
-        case ']':
-        case '}':
-            ch = '\x1d';
-            break;
-        case '6':
-        case '^':
-        case '~':
-            ch = '\x1e';
-            break;
-        case '7':
-        case '-':
-        case '_':
-            ch = '\x1f';
-            break;
-        case '8':
-            ch = '\x7f';
-            break;
-        case '/':
-            if (!_is_alt_pressed(control_key_state)) {
+            case '2':
+            case '@':
+            case '`':
+                ch = '\0';
+                break;
+            case '3':
+            case '[':
+            case '{':
+                ch = '\x1b';
+                break;
+            case '4':
+            case '\\':
+            case '|':
+                ch = '\x1c';
+                break;
+            case '5':
+            case ']':
+            case '}':
+                ch = '\x1d';
+                break;
+            case '6':
+            case '^':
+            case '~':
+                ch = '\x1e';
+                break;
+            case '7':
+            case '-':
+            case '_':
                 ch = '\x1f';
-            }
-            break;
-        case '?':
-            if (!_is_alt_pressed(control_key_state)) {
+                break;
+            case '8':
                 ch = '\x7f';
-            }
-            break;
+                break;
+            case '/':
+                if (!_is_alt_pressed(control_key_state)) {
+                    ch = '\x1f';
+                }
+                break;
+            case '?':
+                if (!_is_alt_pressed(control_key_state)) {
+                    ch = '\x7f';
+                }
+                break;
         }
         *pch = ch;
     }
@@ -1503,8 +1483,7 @@ static size_t _get_control_character(char* const pch,
     return len;
 }
 
-static DWORD _normalize_altgr_control_key_state(
-    const KEY_EVENT_RECORD* const key_event) {
+static DWORD _normalize_altgr_control_key_state(const KEY_EVENT_RECORD* const key_event) {
     DWORD control_key_state = key_event->dwControlKeyState;
 
     // If we're in an AltGr situation where the AltGr key is down (depending on
@@ -1516,9 +1495,8 @@ static DWORD _normalize_altgr_control_key_state(
     // This makes it so that if the user with, say, a German keyboard layout
     // presses AltGr-] (which we see as Right-Alt + Left-Ctrl + key), we just
     // output the key and we don't see the Alt and Ctrl keys.
-    if (_is_ctrl_pressed(control_key_state) &&
-        _is_alt_pressed(control_key_state)
-        && (key_event->uChar.AsciiChar != '\0')) {
+    if (_is_ctrl_pressed(control_key_state) && _is_alt_pressed(control_key_state) &&
+        (key_event->uChar.AsciiChar != '\0')) {
         // Try to remove as few bits as possible to improve our chances of
         // detecting combinations like Left-Alt + AltGr, Right-Ctrl + AltGr, or
         // Left-Alt + Right-Ctrl + AltGr.
@@ -1558,24 +1536,23 @@ static DWORD _normalize_altgr_control_key_state(
 // dwControlKeyState for the following keypad keys: period, 0-9. If we detect
 // this scenario, set the SHIFT_PRESSED bit so we can add modifiers
 // appropriately.
-static DWORD _normalize_keypad_control_key_state(const WORD vk,
-    const DWORD control_key_state) {
+static DWORD _normalize_keypad_control_key_state(const WORD vk, const DWORD control_key_state) {
     if (!_is_numlock_on(control_key_state)) {
         return control_key_state;
     }
     if (!_is_enhanced_key(control_key_state)) {
         switch (vk) {
-            case VK_INSERT: // 0
-            case VK_DELETE: // .
-            case VK_END:    // 1
-            case VK_DOWN:   // 2
-            case VK_NEXT:   // 3
-            case VK_LEFT:   // 4
-            case VK_CLEAR:  // 5
-            case VK_RIGHT:  // 6
-            case VK_HOME:   // 7
-            case VK_UP:     // 8
-            case VK_PRIOR:  // 9
+            case VK_INSERT:  // 0
+            case VK_DELETE:  // .
+            case VK_END:     // 1
+            case VK_DOWN:    // 2
+            case VK_NEXT:    // 3
+            case VK_LEFT:    // 4
+            case VK_CLEAR:   // 5
+            case VK_RIGHT:   // 6
+            case VK_HOME:    // 7
+            case VK_UP:      // 8
+            case VK_PRIOR:   // 9
                 return control_key_state | SHIFT_PRESSED;
         }
     }
@@ -1583,8 +1560,8 @@ static DWORD _normalize_keypad_control_key_state(const WORD vk,
     return control_key_state;
 }
 
-static const char* _get_keypad_sequence(const DWORD control_key_state,
-    const char* const normal, const char* const shifted) {
+static const char* _get_keypad_sequence(const DWORD control_key_state, const char* const normal,
+                                        const char* const shifted) {
     if (_is_shift_pressed(control_key_state)) {
         // Shift is pressed and NumLock is off
         return shifted;
@@ -1601,21 +1578,20 @@ static const char* _get_keypad_sequence(const DWORD control_key_state,
 }
 
 // Write sequence to buf and return the number of bytes written.
-static size_t _get_modifier_sequence(char* const buf, const WORD vk,
-    DWORD control_key_state, const char* const normal) {
+static size_t _get_modifier_sequence(char* const buf, const WORD vk, DWORD control_key_state,
+                                     const char* const normal) {
     // Copy the base sequence into buf.
     const size_t len = strlen(normal);
     memcpy(buf, normal, len);
 
     int code = 0;
 
-    control_key_state = _normalize_keypad_control_key_state(vk,
-        control_key_state);
+    control_key_state = _normalize_keypad_control_key_state(vk, control_key_state);
 
     if (_is_shift_pressed(control_key_state)) {
         code |= 0x1;
     }
-    if (_is_alt_pressed(control_key_state)) {   // any alt key pressed
+    if (_is_alt_pressed(control_key_state)) {  // any alt key pressed
         code |= 0x2;
     }
     if (_is_ctrl_pressed(control_key_state)) {  // any control key pressed
@@ -1633,11 +1609,11 @@ static size_t _get_modifier_sequence(char* const buf, const WORD vk,
         if (lastChar != '~') {
             buf[index++] = '1';
         }
-        buf[index++] = ';';         // modifier separator
+        buf[index++] = ';';  // modifier separator
         // 2 = shift, 3 = alt, 4 = shift & alt, 5 = control,
         // 6 = shift & control, 7 = alt & control, 8 = shift & alt & control
         buf[index++] = '1' + code;
-        buf[index++] = lastChar;    // move ~ (or other last char) to the end
+        buf[index++] = lastChar;  // move ~ (or other last char) to the end
         return index;
     }
     return len;
@@ -1645,8 +1621,8 @@ static size_t _get_modifier_sequence(char* const buf, const WORD vk,
 
 // Write sequence to buf and return the number of bytes written.
 static size_t _get_modifier_keypad_sequence(char* const buf, const WORD vk,
-    const DWORD control_key_state, const char* const normal,
-    const char shifted) {
+                                            const DWORD control_key_state, const char* const normal,
+                                            const char shifted) {
     if (_is_shift_pressed(control_key_state)) {
         // Shift is pressed and NumLock is off
         if (shifted != '\0') {
@@ -1718,8 +1694,7 @@ static int _console_read(const HANDLE console, void* buf, size_t len) {
         KEY_EVENT_RECORD* const key_event = &input_record.Event.KeyEvent;
         const WORD vk = key_event->wVirtualKeyCode;
         const CHAR ch = key_event->uChar.AsciiChar;
-        const DWORD control_key_state = _normalize_altgr_control_key_state(
-            key_event);
+        const DWORD control_key_state = _normalize_altgr_control_key_state(key_event);
 
         // The following emulation code should write the output sequence to
         // either seqstr or to seqbuf and seqbuflen.
@@ -1727,42 +1702,32 @@ static int _console_read(const HANDLE console, void* buf, size_t len) {
         // Enough space for max sequence string below, plus modifiers and/or
         // escape prefix.
         char seqbuf[16];
-        size_t seqbuflen = 0;       // Space used in seqbuf.
+        size_t seqbuflen = 0;  // Space used in seqbuf.
 
-#define MATCH(vk, normal) \
-            case (vk): \
-            { \
-                seqstr = (normal); \
-            } \
-            break;
+#define MATCH(vk, normal)  \
+    case (vk): {           \
+        seqstr = (normal); \
+    } break;
 
         // Modifier keys should affect the output sequence.
-#define MATCH_MODIFIER(vk, normal) \
-            case (vk): \
-            { \
-                seqbuflen = _get_modifier_sequence(seqbuf, (vk), \
-                    control_key_state, (normal)); \
-            } \
-            break;
+#define MATCH_MODIFIER(vk, normal)                                                     \
+    case (vk): {                                                                       \
+        seqbuflen = _get_modifier_sequence(seqbuf, (vk), control_key_state, (normal)); \
+    } break;
 
         // The shift key should affect the output sequence.
-#define MATCH_KEYPAD(vk, normal, shifted) \
-            case (vk): \
-            { \
-                seqstr = _get_keypad_sequence(control_key_state, (normal), \
-                    (shifted)); \
-            } \
-            break;
+#define MATCH_KEYPAD(vk, normal, shifted)                                      \
+    case (vk): {                                                               \
+        seqstr = _get_keypad_sequence(control_key_state, (normal), (shifted)); \
+    } break;
 
         // The shift key and other modifier keys should affect the output
         // sequence.
-#define MATCH_MODIFIER_KEYPAD(vk, normal, shifted) \
-            case (vk): \
-            { \
-                seqbuflen = _get_modifier_keypad_sequence(seqbuf, (vk), \
-                    control_key_state, (normal), (shifted)); \
-            } \
-            break;
+#define MATCH_MODIFIER_KEYPAD(vk, normal, shifted)                                               \
+    case (vk): {                                                                                 \
+        seqbuflen =                                                                              \
+            _get_modifier_keypad_sequence(seqbuf, (vk), control_key_state, (normal), (shifted)); \
+    } break;
 
 #define ESC "\x1b"
 #define CSI ESC "["
@@ -1778,7 +1743,7 @@ static int _console_read(const HANDLE console, void* buf, size_t len) {
         //   VK_CANCEL (Ctrl-Pause/Break), VK_NUMLOCK
         if (_is_enhanced_key(control_key_state)) {
             switch (vk) {
-                case VK_RETURN: // Enter key on keypad
+                case VK_RETURN:  // Enter key on keypad
                     if (_is_ctrl_pressed(control_key_state)) {
                         seqstr = "\n";
                     } else {
@@ -1786,28 +1751,28 @@ static int _console_read(const HANDLE console, void* buf, size_t len) {
                     }
                     break;
 
-                MATCH_MODIFIER(VK_PRIOR, CSI "5~"); // Page Up
-                MATCH_MODIFIER(VK_NEXT,  CSI "6~"); // Page Down
+                    MATCH_MODIFIER(VK_PRIOR, CSI "5~");  // Page Up
+                    MATCH_MODIFIER(VK_NEXT, CSI "6~");   // Page Down
 
-                // gnome-terminal currently sends SS3 "F" and SS3 "H", but that
-                // will be fixed soon to match xterm which sends CSI "F" and
-                // CSI "H". https://bugzilla.redhat.com/show_bug.cgi?id=1119764
-                MATCH(VK_END,  CSI "F");
-                MATCH(VK_HOME, CSI "H");
+                    // gnome-terminal currently sends SS3 "F" and SS3 "H", but that
+                    // will be fixed soon to match xterm which sends CSI "F" and
+                    // CSI "H". https://bugzilla.redhat.com/show_bug.cgi?id=1119764
+                    MATCH(VK_END, CSI "F");
+                    MATCH(VK_HOME, CSI "H");
 
-                MATCH_MODIFIER(VK_LEFT,  CSI "D");
-                MATCH_MODIFIER(VK_UP,    CSI "A");
-                MATCH_MODIFIER(VK_RIGHT, CSI "C");
-                MATCH_MODIFIER(VK_DOWN,  CSI "B");
+                    MATCH_MODIFIER(VK_LEFT, CSI "D");
+                    MATCH_MODIFIER(VK_UP, CSI "A");
+                    MATCH_MODIFIER(VK_RIGHT, CSI "C");
+                    MATCH_MODIFIER(VK_DOWN, CSI "B");
 
-                MATCH_MODIFIER(VK_INSERT, CSI "2~");
-                MATCH_MODIFIER(VK_DELETE, CSI "3~");
+                    MATCH_MODIFIER(VK_INSERT, CSI "2~");
+                    MATCH_MODIFIER(VK_DELETE, CSI "3~");
 
-                MATCH(VK_DIVIDE, "/");
+                    MATCH(VK_DIVIDE, "/");
             }
-        } else {    // Non-enhanced keys:
+        } else {  // Non-enhanced keys:
             switch (vk) {
-                case VK_BACK:   // backspace
+                case VK_BACK:  // backspace
                     if (_is_alt_pressed(control_key_state)) {
                         seqstr = ESC "\x7f";
                     } else {
@@ -1823,11 +1788,11 @@ static int _console_read(const HANDLE console, void* buf, size_t len) {
                     }
                     break;
 
-                // Number 5 key in keypad when NumLock is off, or if NumLock is
-                // on and Shift is down.
-                MATCH_KEYPAD(VK_CLEAR, CSI "E", "5");
+                    // Number 5 key in keypad when NumLock is off, or if NumLock is
+                    // on and Shift is down.
+                    MATCH_KEYPAD(VK_CLEAR, CSI "E", "5");
 
-                case VK_RETURN:     // Enter key on main keyboard
+                case VK_RETURN:  // Enter key on main keyboard
                     if (_is_alt_pressed(control_key_state)) {
                         seqstr = ESC "\n";
                     } else if (_is_ctrl_pressed(control_key_state)) {
@@ -1837,60 +1802,57 @@ static int _console_read(const HANDLE console, void* buf, size_t len) {
                     }
                     break;
 
-                // VK_ESCAPE: Don't do any special handling. The OS uses many
-                // of the sequences with Escape and many of the remaining
-                // sequences don't produce bKeyDown messages, only !bKeyDown
-                // for whatever reason.
+                    // VK_ESCAPE: Don't do any special handling. The OS uses many
+                    // of the sequences with Escape and many of the remaining
+                    // sequences don't produce bKeyDown messages, only !bKeyDown
+                    // for whatever reason.
 
                 case VK_SPACE:
                     if (_is_alt_pressed(control_key_state)) {
                         seqstr = ESC " ";
                     } else if (_is_ctrl_pressed(control_key_state)) {
-                        seqbuf[0] = '\0';   // NULL char
+                        seqbuf[0] = '\0';  // NULL char
                         seqbuflen = 1;
                     } else {
                         seqstr = " ";
                     }
                     break;
 
-                MATCH_MODIFIER_KEYPAD(VK_PRIOR, CSI "5~", '9'); // Page Up
-                MATCH_MODIFIER_KEYPAD(VK_NEXT,  CSI "6~", '3'); // Page Down
+                    MATCH_MODIFIER_KEYPAD(VK_PRIOR, CSI "5~", '9');  // Page Up
+                    MATCH_MODIFIER_KEYPAD(VK_NEXT, CSI "6~", '3');   // Page Down
 
-                MATCH_KEYPAD(VK_END,  CSI "4~", "1");
-                MATCH_KEYPAD(VK_HOME, CSI "1~", "7");
+                    MATCH_KEYPAD(VK_END, CSI "4~", "1");
+                    MATCH_KEYPAD(VK_HOME, CSI "1~", "7");
 
-                MATCH_MODIFIER_KEYPAD(VK_LEFT,  CSI "D", '4');
-                MATCH_MODIFIER_KEYPAD(VK_UP,    CSI "A", '8');
-                MATCH_MODIFIER_KEYPAD(VK_RIGHT, CSI "C", '6');
-                MATCH_MODIFIER_KEYPAD(VK_DOWN,  CSI "B", '2');
+                    MATCH_MODIFIER_KEYPAD(VK_LEFT, CSI "D", '4');
+                    MATCH_MODIFIER_KEYPAD(VK_UP, CSI "A", '8');
+                    MATCH_MODIFIER_KEYPAD(VK_RIGHT, CSI "C", '6');
+                    MATCH_MODIFIER_KEYPAD(VK_DOWN, CSI "B", '2');
 
-                MATCH_MODIFIER_KEYPAD(VK_INSERT, CSI "2~", '0');
-                MATCH_MODIFIER_KEYPAD(VK_DELETE, CSI "3~",
-                    _get_decimal_char());
+                    MATCH_MODIFIER_KEYPAD(VK_INSERT, CSI "2~", '0');
+                    MATCH_MODIFIER_KEYPAD(VK_DELETE, CSI "3~", _get_decimal_char());
 
-                case 0x30:          // 0
-                case 0x31:          // 1
-                case 0x39:          // 9
-                case VK_OEM_1:      // ;:
-                case VK_OEM_PLUS:   // =+
-                case VK_OEM_COMMA:  // ,<
-                case VK_OEM_PERIOD: // .>
-                case VK_OEM_7:      // '"
-                case VK_OEM_102:    // depends on keyboard, could be <> or \|
-                case VK_OEM_2:      // /?
-                case VK_OEM_3:      // `~
-                case VK_OEM_4:      // [{
-                case VK_OEM_5:      // \|
-                case VK_OEM_6:      // ]}
+                case 0x30:           // 0
+                case 0x31:           // 1
+                case 0x39:           // 9
+                case VK_OEM_1:       // ;:
+                case VK_OEM_PLUS:    // =+
+                case VK_OEM_COMMA:   // ,<
+                case VK_OEM_PERIOD:  // .>
+                case VK_OEM_7:       // '"
+                case VK_OEM_102:     // depends on keyboard, could be <> or \|
+                case VK_OEM_2:       // /?
+                case VK_OEM_3:       // `~
+                case VK_OEM_4:       // [{
+                case VK_OEM_5:       // \|
+                case VK_OEM_6:       // ]}
                 {
-                    seqbuflen = _get_control_character(seqbuf, key_event,
-                        control_key_state);
+                    seqbuflen = _get_control_character(seqbuf, key_event, control_key_state);
 
                     if (_is_alt_pressed(control_key_state)) {
                         seqbuflen = _escape_prefix(seqbuf, seqbuflen);
                     }
-                }
-                break;
+                } break;
 
                 case 0x32:          // 2
                 case 0x33:          // 3
@@ -1901,18 +1863,16 @@ static int _console_read(const HANDLE console, void* buf, size_t len) {
                 case 0x38:          // 8
                 case VK_OEM_MINUS:  // -_
                 {
-                    seqbuflen = _get_control_character(seqbuf, key_event,
-                        control_key_state);
+                    seqbuflen = _get_control_character(seqbuf, key_event, control_key_state);
 
                     // If Alt is pressed and it isn't Ctrl-Alt-ShiftUp, then
                     // prefix with escape.
                     if (_is_alt_pressed(control_key_state) &&
                         !(_is_ctrl_pressed(control_key_state) &&
-                        !_is_shift_pressed(control_key_state))) {
+                          !_is_shift_pressed(control_key_state))) {
                         seqbuflen = _escape_prefix(seqbuf, seqbuflen);
                     }
-                }
-                break;
+                } break;
 
                 case 0x41:  // a
                 case 0x42:  // b
@@ -1941,68 +1901,65 @@ static int _console_read(const HANDLE console, void* buf, size_t len) {
                 case 0x59:  // y
                 case 0x5a:  // z
                 {
-                    seqbuflen = _get_non_alt_char(seqbuf, key_event,
-                        control_key_state);
+                    seqbuflen = _get_non_alt_char(seqbuf, key_event, control_key_state);
 
                     // If Alt is pressed, then prefix with escape.
                     if (_is_alt_pressed(control_key_state)) {
                         seqbuflen = _escape_prefix(seqbuf, seqbuflen);
                     }
-                }
-                break;
+                } break;
 
-                // These virtual key codes are generated by the keys on the
-                // keypad *when NumLock is on* and *Shift is up*.
-                MATCH(VK_NUMPAD0, "0");
-                MATCH(VK_NUMPAD1, "1");
-                MATCH(VK_NUMPAD2, "2");
-                MATCH(VK_NUMPAD3, "3");
-                MATCH(VK_NUMPAD4, "4");
-                MATCH(VK_NUMPAD5, "5");
-                MATCH(VK_NUMPAD6, "6");
-                MATCH(VK_NUMPAD7, "7");
-                MATCH(VK_NUMPAD8, "8");
-                MATCH(VK_NUMPAD9, "9");
+                    // These virtual key codes are generated by the keys on the
+                    // keypad *when NumLock is on* and *Shift is up*.
+                    MATCH(VK_NUMPAD0, "0");
+                    MATCH(VK_NUMPAD1, "1");
+                    MATCH(VK_NUMPAD2, "2");
+                    MATCH(VK_NUMPAD3, "3");
+                    MATCH(VK_NUMPAD4, "4");
+                    MATCH(VK_NUMPAD5, "5");
+                    MATCH(VK_NUMPAD6, "6");
+                    MATCH(VK_NUMPAD7, "7");
+                    MATCH(VK_NUMPAD8, "8");
+                    MATCH(VK_NUMPAD9, "9");
 
-                MATCH(VK_MULTIPLY, "*");
-                MATCH(VK_ADD,      "+");
-                MATCH(VK_SUBTRACT, "-");
+                    MATCH(VK_MULTIPLY, "*");
+                    MATCH(VK_ADD, "+");
+                    MATCH(VK_SUBTRACT, "-");
                 // VK_DECIMAL is generated by the . key on the keypad *when
                 // NumLock is on* and *Shift is up* and the sequence is not
                 // Ctrl-Alt-NoShift-. (which causes Ctrl-Alt-Del and the
                 // Windows Security screen to come up).
                 case VK_DECIMAL:
                     // U.S. English uses '.', Germany German uses ','.
-                    seqbuflen = _get_non_control_char(seqbuf, key_event,
-                        control_key_state);
+                    seqbuflen = _get_non_control_char(seqbuf, key_event, control_key_state);
                     break;
 
-                MATCH_MODIFIER(VK_F1,  SS3 "P");
-                MATCH_MODIFIER(VK_F2,  SS3 "Q");
-                MATCH_MODIFIER(VK_F3,  SS3 "R");
-                MATCH_MODIFIER(VK_F4,  SS3 "S");
-                MATCH_MODIFIER(VK_F5,  CSI "15~");
-                MATCH_MODIFIER(VK_F6,  CSI "17~");
-                MATCH_MODIFIER(VK_F7,  CSI "18~");
-                MATCH_MODIFIER(VK_F8,  CSI "19~");
-                MATCH_MODIFIER(VK_F9,  CSI "20~");
-                MATCH_MODIFIER(VK_F10, CSI "21~");
-                MATCH_MODIFIER(VK_F11, CSI "23~");
-                MATCH_MODIFIER(VK_F12, CSI "24~");
+                    MATCH_MODIFIER(VK_F1, SS3 "P");
+                    MATCH_MODIFIER(VK_F2, SS3 "Q");
+                    MATCH_MODIFIER(VK_F3, SS3 "R");
+                    MATCH_MODIFIER(VK_F4, SS3 "S");
+                    MATCH_MODIFIER(VK_F5, CSI "15~");
+                    MATCH_MODIFIER(VK_F6, CSI "17~");
+                    MATCH_MODIFIER(VK_F7, CSI "18~");
+                    MATCH_MODIFIER(VK_F8, CSI "19~");
+                    MATCH_MODIFIER(VK_F9, CSI "20~");
+                    MATCH_MODIFIER(VK_F10, CSI "21~");
+                    MATCH_MODIFIER(VK_F11, CSI "23~");
+                    MATCH_MODIFIER(VK_F12, CSI "24~");
 
-                MATCH_MODIFIER(VK_F13, CSI "25~");
-                MATCH_MODIFIER(VK_F14, CSI "26~");
-                MATCH_MODIFIER(VK_F15, CSI "28~");
-                MATCH_MODIFIER(VK_F16, CSI "29~");
-                MATCH_MODIFIER(VK_F17, CSI "31~");
-                MATCH_MODIFIER(VK_F18, CSI "32~");
-                MATCH_MODIFIER(VK_F19, CSI "33~");
-                MATCH_MODIFIER(VK_F20, CSI "34~");
+                    MATCH_MODIFIER(VK_F13, CSI "25~");
+                    MATCH_MODIFIER(VK_F14, CSI "26~");
+                    MATCH_MODIFIER(VK_F15, CSI "28~");
+                    MATCH_MODIFIER(VK_F16, CSI "29~");
+                    MATCH_MODIFIER(VK_F17, CSI "31~");
+                    MATCH_MODIFIER(VK_F18, CSI "32~");
+                    MATCH_MODIFIER(VK_F19, CSI "33~");
+                    MATCH_MODIFIER(VK_F20, CSI "34~");
 
-                // MATCH_MODIFIER(VK_F21, ???);
-                // MATCH_MODIFIER(VK_F22, ???);
-                // MATCH_MODIFIER(VK_F23, ???);
-                // MATCH_MODIFIER(VK_F24, ???);
+                    // MATCH_MODIFIER(VK_F21, ???);
+                    // MATCH_MODIFIER(VK_F22, ???);
+                    // MATCH_MODIFIER(VK_F23, ???);
+                    // MATCH_MODIFIER(VK_F24, ???);
             }
         }
 
@@ -2040,8 +1997,8 @@ static int _console_read(const HANDLE console, void* buf, size_t len) {
             //
             // Consume the input and 'continue' to cause us to get a new key
             // event.
-            D("_console_read: unknown virtual key code: %d, enhanced: %s",
-                vk, _is_enhanced_key(control_key_state) ? "true" : "false");
+            D("_console_read: unknown virtual key code: %d, enhanced: %s", vk,
+              _is_enhanced_key(control_key_state) ? "true" : "false");
             continue;
         }
 
@@ -2054,8 +2011,8 @@ static int _console_read(const HANDLE console, void* buf, size_t len) {
     }
 }
 
-static DWORD _old_console_mode; // previous GetConsoleMode() result
-static HANDLE _console_handle;  // when set, console mode should be restored
+static DWORD _old_console_mode;  // previous GetConsoleMode() result
+static HANDLE _console_handle;   // when set, console mode should be restored
 
 void stdin_raw_init() {
     const HANDLE in = _get_console_handle(STDIN_FILENO, &_old_console_mode);
@@ -2069,9 +2026,8 @@ void stdin_raw_init() {
     // Disable ENABLE_LINE_INPUT so that input is immediately sent.
     // Disable ENABLE_ECHO_INPUT to disable local echo. Disabling this
     // flag also seems necessary to have proper line-ending processing.
-    DWORD new_console_mode = _old_console_mode & ~(ENABLE_PROCESSED_INPUT |
-                                                   ENABLE_LINE_INPUT |
-                                                   ENABLE_ECHO_INPUT);
+    DWORD new_console_mode =
+        _old_console_mode & ~(ENABLE_PROCESSED_INPUT | ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT);
     // Enable ENABLE_WINDOW_INPUT to get window resizes.
     new_console_mode |= ENABLE_WINDOW_INPUT;
 
@@ -2209,7 +2165,6 @@ int unix_read_interruptible(int fd, void* buf, size_t len) {
 // So the only solution is to write our own adb_fprintf() that converts UTF-8
 // to UTF-16 and then calls WriteConsoleW().
 
-
 // Constructor for helper class to convert wmain() UTF-16 args to UTF-8 to
 // be passed to main().
 NarrowArgs::NarrowArgs(const int argc, wchar_t** const argv) {
@@ -2222,7 +2177,7 @@ NarrowArgs::NarrowArgs(const int argc, wchar_t** const argv) {
         }
         narrow_args[i] = strdup(arg_narrow.c_str());
     }
-    narrow_args[argc] = nullptr;   // terminate
+    narrow_args[argc] = nullptr;  // terminate
 }
 
 NarrowArgs::~NarrowArgs() {
@@ -2243,8 +2198,8 @@ int unix_open(const char* path, int options, ...) {
     if ((options & O_CREAT) == 0) {
         return _wopen(path_wide.c_str(), options);
     } else {
-        int      mode;
-        va_list  args;
+        int mode;
+        va_list args;
         va_start(args, options);
         mode = va_arg(args, int);
         va_end(args);
@@ -2338,14 +2293,13 @@ int adb_unlink(const char* path) {
         return -1;
     }
 
-    int  rc = _wunlink(wpath.c_str());
+    int rc = _wunlink(wpath.c_str());
 
     if (rc == -1 && errno == EACCES) {
         /* unlink returns EACCES when the file is read-only, so we first */
         /* try to make it writable, then unlink again...                 */
         rc = _wchmod(wpath.c_str(), _S_IREAD | _S_IWRITE);
-        if (rc == 0)
-            rc = _wunlink(wpath.c_str());
+        if (rc == 0) rc = _wunlink(wpath.c_str());
     }
     return rc;
 }
@@ -2368,8 +2322,8 @@ int adb_utime(const char* path, struct utimbuf* u) {
     }
 
     static_assert(sizeof(struct utimbuf) == sizeof(struct _utimbuf),
-        "utimbuf and _utimbuf should be the same size because they both "
-        "contain the same types, namely time_t");
+                  "utimbuf and _utimbuf should be the same size because they both "
+                  "contain the same types, namely time_t");
     return _wutime(path_wide.c_str(), reinterpret_cast<struct _utimbuf*>(u));
 }
 
@@ -2402,11 +2356,11 @@ size_t ParseCompleteUTF8(const char* const first, const char* const last,
         const char ch = *current;
         const char kHighBit = 0x80u;
         const char kTwoHighestBits = 0xC0u;
-        if ((ch & kHighBit) == 0) { // high bit not set
+        if ((ch & kHighBit) == 0) {  // high bit not set
             // The buffer ends with a one-byte UTF-8 sequence, possibly followed by invalid trailing
             // bytes with no leading byte, so return the entire buffer.
             break;
-        } else if ((ch & kTwoHighestBits) == kTwoHighestBits) { // top two highest bits set
+        } else if ((ch & kTwoHighestBits) == kTwoHighestBits) {  // top two highest bits set
             // Lead byte in UTF-8 sequence, so check if we have all the bytes in the sequence.
             const size_t bytes_available = last - current;
             if (bytes_available < utf8_codepoint_len(ch)) {
@@ -2431,7 +2385,7 @@ size_t ParseCompleteUTF8(const char* const first, const char* const last,
     return last - first;
 }
 
-}
+}  // namespace internal
 
 // Bytes that have not yet been output to the console because they are incomplete UTF-8 sequences.
 // Note that we use only one buffer even though stderr and stdout are logically separate streams.
@@ -2500,14 +2454,12 @@ static int _console_write_utf8(const char* const buf, const size_t buf_size, FIL
 }
 
 // Function prototype because attributes cannot be placed on func definitions.
-static int _console_vfprintf(const HANDLE console, FILE* stream,
-                             const char *format, va_list ap)
+static int _console_vfprintf(const HANDLE console, FILE* stream, const char* format, va_list ap)
     __attribute__((__format__(ADB_FORMAT_ARCHETYPE, 3, 0)));
 
 // Internal function to format a UTF-8 string and write it to a Win32 console.
 // Returns -1 on error.
-static int _console_vfprintf(const HANDLE console, FILE* stream,
-                             const char *format, va_list ap) {
+static int _console_vfprintf(const HANDLE console, FILE* stream, const char* format, va_list ap) {
     const int saved_errno = errno;
     std::string output_utf8;
 
@@ -2515,8 +2467,8 @@ static int _console_vfprintf(const HANDLE console, FILE* stream,
     // This could throw std::bad_alloc.
     android::base::StringAppendV(&output_utf8, format, ap);
 
-    const int result = _console_write_utf8(output_utf8.c_str(), output_utf8.length(), stream,
-                                           console);
+    const int result =
+        _console_write_utf8(output_utf8.c_str(), output_utf8.length(), stream, console);
     if (result != -1) {
         errno = saved_errno;
     } else {
@@ -2527,7 +2479,7 @@ static int _console_vfprintf(const HANDLE console, FILE* stream,
 
 // Version of vfprintf() that takes UTF-8 and can write Unicode to a
 // Windows console.
-int adb_vfprintf(FILE *stream, const char *format, va_list ap) {
+int adb_vfprintf(FILE* stream, const char* format, va_list ap) {
     const HANDLE console = _get_console_handle(stream);
 
     // If there is an associated Win32 console, write to it specially,
@@ -2545,13 +2497,13 @@ int adb_vfprintf(FILE *stream, const char *format, va_list ap) {
 }
 
 // Version of vprintf() that takes UTF-8 and can write Unicode to a Windows console.
-int adb_vprintf(const char *format, va_list ap) {
+int adb_vprintf(const char* format, va_list ap) {
     return adb_vfprintf(stdout, format, ap);
 }
 
 // Version of fprintf() that takes UTF-8 and can write Unicode to a
 // Windows console.
-int adb_fprintf(FILE *stream, const char *format, ...) {
+int adb_fprintf(FILE* stream, const char* format, ...) {
     va_list ap;
     va_start(ap, format);
     const int result = adb_vfprintf(stream, format, ap);
@@ -2562,7 +2514,7 @@ int adb_fprintf(FILE *stream, const char *format, ...) {
 
 // Version of printf() that takes UTF-8 and can write Unicode to a
 // Windows console.
-int adb_printf(const char *format, ...) {
+int adb_printf(const char* format, ...) {
     va_list ap;
     va_start(ap, format);
     const int result = adb_vfprintf(stdout, format, ap);
@@ -2606,10 +2558,10 @@ int adb_puts(const char* buf) {
 
 // Internal function to write UTF-8 to a Win32 console. Returns the number of
 // items (of length size) written. On error, returns a short item count or 0.
-static size_t _console_fwrite(const void* ptr, size_t size, size_t nmemb,
-                              FILE* stream, HANDLE console) {
-    const int result = _console_write_utf8(reinterpret_cast<const char*>(ptr), size * nmemb, stream,
-                                           console);
+static size_t _console_fwrite(const void* ptr, size_t size, size_t nmemb, FILE* stream,
+                              HANDLE console) {
+    const int result =
+        _console_write_utf8(reinterpret_cast<const char*>(ptr), size * nmemb, stream, console);
     if (result == -1) {
         return 0;
     }
@@ -2668,7 +2620,7 @@ extern "C" int main(int argc, char** argv);
 // Link with -municode to cause this wmain() to be used as the program
 // entrypoint. It will convert the args from UTF-16 to UTF-8 and call the
 // regular main() with UTF-8 args.
-extern "C" int wmain(int argc, wchar_t **argv) {
+extern "C" int wmain(int argc, wchar_t** argv) {
     // Convert args from UTF-16 to UTF-8 and pass that to main().
     NarrowArgs narrow_args(argc, argv);
     return main(argc, narrow_args.data());

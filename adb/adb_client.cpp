@@ -16,9 +16,11 @@
 
 #define TRACE_TAG ADB
 
-#include "sysdeps.h"
 #include "adb_client.h"
 
+#include <android-base/stringprintf.h>
+#include <android-base/strings.h>
+#include <cutils/sockets.h>
 #include <errno.h>
 #include <limits.h>
 #include <stdarg.h>
@@ -31,12 +33,9 @@
 #include <string>
 #include <vector>
 
-#include <android-base/stringprintf.h>
-#include <android-base/strings.h>
-#include <cutils/sockets.h>
-
 #include "adb_io.h"
 #include "adb_utils.h"
+#include "sysdeps.h"
 
 static TransportType __adb_transport = kTransportAny;
 static const char* __adb_serial = NULL;
@@ -44,8 +43,7 @@ static const char* __adb_serial = NULL;
 static int __adb_server_port = DEFAULT_ADB_PORT;
 static const char* __adb_server_name = NULL;
 
-void adb_set_transport(TransportType type, const char* serial)
-{
+void adb_set_transport(TransportType type, const char* serial) {
     __adb_transport = type;
     __adb_serial = serial;
 }
@@ -59,13 +57,11 @@ void adb_get_transport(TransportType* type, const char** serial) {
     }
 }
 
-void adb_set_tcp_specifics(int server_port)
-{
+void adb_set_tcp_specifics(int server_port) {
     __adb_server_port = server_port;
 }
 
-void adb_set_tcp_name(const char* hostname)
-{
+void adb_set_tcp_name(const char* hostname) {
     __adb_server_name = hostname;
 }
 
@@ -77,18 +73,18 @@ static int switch_socket_transport(int fd, std::string* error) {
     } else {
         const char* transport_type = "???";
         switch (__adb_transport) {
-          case kTransportUsb:
-            transport_type = "transport-usb";
-            break;
-          case kTransportLocal:
-            transport_type = "transport-local";
-            break;
-          case kTransportAny:
-            transport_type = "transport-any";
-            break;
-          case kTransportHost:
-            // no switch necessary
-            return 0;
+            case kTransportUsb:
+                transport_type = "transport-usb";
+                break;
+            case kTransportLocal:
+                transport_type = "transport-local";
+                break;
+            case kTransportAny:
+                transport_type = "transport-any";
+                break;
+            case kTransportHost:
+                // no switch necessary
+                return 0;
         }
         service += "host:";
         service += transport_type;
@@ -134,8 +130,7 @@ bool adb_status(int fd, std::string* error) {
 int _adb_connect(const std::string& service, std::string* error) {
     D("_adb_connect: %s", service.c_str());
     if (service.empty() || service.size() > MAX_PAYLOAD_V1) {
-        *error = android::base::StringPrintf("bad service name length (%zd)",
-                                             service.size());
+        *error = android::base::StringPrintf("bad service name length (%zd)", service.size());
         return -1;
     }
 
@@ -144,21 +139,19 @@ int _adb_connect(const std::string& service, std::string* error) {
     if (__adb_server_name) {
         fd = network_connect(__adb_server_name, __adb_server_port, SOCK_STREAM, 0, &reason);
         if (fd == -1) {
-            *error = android::base::StringPrintf("can't connect to %s:%d: %s",
-                                                 __adb_server_name, __adb_server_port,
-                                                 reason.c_str());
+            *error = android::base::StringPrintf("can't connect to %s:%d: %s", __adb_server_name,
+                                                 __adb_server_port, reason.c_str());
             return -2;
         }
     } else {
         fd = network_loopback_client(__adb_server_port, SOCK_STREAM, &reason);
         if (fd == -1) {
-            *error = android::base::StringPrintf("cannot connect to daemon: %s",
-                                                 reason.c_str());
+            *error = android::base::StringPrintf("cannot connect to daemon: %s", reason.c_str());
             return -2;
         }
     }
 
-    if ((memcmp(&service[0],"host",4) != 0 || service == "host:reconnect") &&
+    if ((memcmp(&service[0], "host", 4) != 0 || service == "host:reconnect") &&
         switch_socket_transport(fd, error)) {
         return -1;
     }
@@ -186,22 +179,21 @@ int adb_connect(const std::string& service, std::string* error) {
 
     D("adb_connect: service %s", service.c_str());
     if (fd == -2 && __adb_server_name) {
-        fprintf(stderr,"** Cannot start server on remote host\n");
+        fprintf(stderr, "** Cannot start server on remote host\n");
         // error is the original network connection error
         return fd;
     } else if (fd == -2) {
-        fprintf(stdout,"* daemon not running. starting it now on port %d *\n",
-                __adb_server_port);
+        fprintf(stdout, "* daemon not running. starting it now on port %d *\n", __adb_server_port);
     start_server:
         if (launch_server(__adb_server_port)) {
-            fprintf(stderr,"* failed to start daemon *\n");
+            fprintf(stderr, "* failed to start daemon *\n");
             // launch_server() has already printed detailed error info, so just
             // return a generic error string about the overall adb_connect()
             // that the caller requested.
             *error = "cannot connect to daemon";
             return -1;
         } else {
-            fprintf(stdout,"* daemon started successfully *\n");
+            fprintf(stdout, "* daemon started successfully *\n");
         }
         /* give the server some time to start properly and detect devices */
         adb_sleep_ms(3000);
@@ -236,8 +228,8 @@ int adb_connect(const std::string& service, std::string* error) {
         }
 
         if (version != ADB_SERVER_VERSION) {
-            printf("adb server version (%d) doesn't match this client (%d); killing...\n",
-                   version, ADB_SERVER_VERSION);
+            printf("adb server version (%d) doesn't match this client (%d); killing...\n", version,
+                   ADB_SERVER_VERSION);
             fd = _adb_connect("host:kill", error);
             if (fd >= 0) {
                 ReadOrderlyShutdown(fd);
@@ -262,14 +254,13 @@ int adb_connect(const std::string& service, std::string* error) {
     fd = _adb_connect(service, error);
     if (fd == -1) {
         D("_adb_connect error: %s", error->c_str());
-    } else if(fd == -2) {
-        fprintf(stderr,"** daemon still not running\n");
+    } else if (fd == -2) {
+        fprintf(stderr, "** daemon still not running\n");
     }
     D("adb_connect: return fd %d", fd);
 
     return fd;
 }
-
 
 bool adb_command(const std::string& service) {
     std::string error;

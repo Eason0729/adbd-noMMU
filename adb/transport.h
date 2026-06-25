@@ -43,7 +43,7 @@ extern const char* const kFeatureShell2;
 extern const char* const kFeatureCmd;
 
 class atransport {
-public:
+  public:
     // TODO(danalbert): We expose waaaaaaay too much stuff because this was
     // historically just a struct, but making the whole thing a more idiomatic
     // class in one go is a very large change. Given how bad our testing is,
@@ -55,7 +55,8 @@ public:
         max_payload = MAX_PAYLOAD;
     }
 
-    virtual ~atransport() {}
+    virtual ~atransport() {
+    }
 
     int (*read_from_remote)(apacket* p, atransport* t) = nullptr;
     int (*write_to_remote)(apacket* p, atransport* t) = nullptr;
@@ -145,7 +146,7 @@ public:
     // This is to make it easier to use the same network target for both fastboot and adb.
     bool MatchesTarget(const std::string& target) const;
 
-private:
+  private:
     int local_port_for_emulator_ = -1;
     bool kicked_ = false;
     void (*kick_func_)(atransport*) = nullptr;
@@ -169,8 +170,8 @@ private:
  * is set to true and nullptr returned.
  * If no suitable transport is found, error is set and nullptr returned.
  */
-atransport* acquire_one_transport(TransportType type, const char* serial,
-                                  bool* is_ambiguous, std::string* error_out);
+atransport* acquire_one_transport(TransportType type, const char* serial, bool* is_ambiguous,
+                                  std::string* error_out);
 void kick_transport(atransport* t);
 void update_transports(void);
 
@@ -179,8 +180,8 @@ std::string list_transports(bool long_listing);
 atransport* find_transport(const char* serial);
 void kick_all_tcp_devices();
 
-void register_usb_transport(usb_handle* h, const char* serial,
-                            const char* devpath, unsigned writeable);
+void register_usb_transport(usb_handle* h, const char* serial, const char* devpath,
+                            unsigned writeable);
 
 /* cause new transports to be init'd and added to the list */
 int register_socket_transport(int s, const char* serial, int port, int local);
@@ -198,4 +199,4 @@ void send_packet(apacket* p, atransport* t);
 
 asocket* create_device_tracker(void);
 
-#endif   /* __TRANSPORT_H */
+#endif /* __TRANSPORT_H */

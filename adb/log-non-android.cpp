@@ -1,8 +1,7 @@
 #include <inttypes.h>
 #include <log/logd.h>
 
-int __android_log_security_bswrite(int32_t tag, const char *payload)
-{
+int __android_log_security_bswrite(int32_t tag, const char* payload) {
 #if 0
     struct iovec vec[4];
     char type = EVENT_TYPE_STRING;
@@ -22,8 +21,7 @@ int __android_log_security_bswrite(int32_t tag, const char *payload)
     return 0;
 }
 
-int __android_log_print(int prio, const char *tag,  const char *fmt, ...)
-{
+int __android_log_print(int prio, const char* tag, const char* fmt, ...) {
 #if 0
     va_list ap;
     char buf[LOG_BUF_SIZE];

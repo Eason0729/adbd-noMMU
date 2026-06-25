@@ -14,9 +14,10 @@
  * limitations under the License.
  */
 
-#include "fdevent.h"
+#include "socket.h"
 
 #include <gtest/gtest.h>
+#include <unistd.h>
 
 #include <array>
 #include <limits>
@@ -24,12 +25,10 @@
 #include <string>
 #include <vector>
 
-#include <unistd.h>
-
 #include "adb.h"
 #include "adb_io.h"
+#include "fdevent.h"
 #include "fdevent_test.h"
-#include "socket.h"
 #include "sysdeps.h"
 
 struct ThreadArg {

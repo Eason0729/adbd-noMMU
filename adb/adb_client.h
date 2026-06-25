@@ -17,10 +17,10 @@
 #ifndef _ADB_CLIENT_H_
 #define _ADB_CLIENT_H_
 
+#include <string>
+
 #include "adb.h"
 #include "transport.h"
-
-#include <string>
 
 // Connect to adb, connect to the named service, and return a valid fd for
 // interacting with that service upon success or a negative number on failure.

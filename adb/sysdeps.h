@@ -21,7 +21,7 @@
 #define _ADB_SYSDEPS_H
 
 #ifdef __CYGWIN__
-#  undef _WIN32
+#undef _WIN32
 #endif
 
 #include <errno.h>
@@ -41,12 +41,14 @@
  */
 #ifndef TEMP_FAILURE_RETRY
 /* Used to retry syscalls that can return EINTR. */
-#define TEMP_FAILURE_RETRY(exp) ({         \
-    typeof (exp) _rc;                      \
-    do {                                   \
-        _rc = (exp);                       \
-    } while (_rc == -1 && errno == EINTR); \
-    _rc; })
+#define TEMP_FAILURE_RETRY(exp)                \
+    ({                                         \
+        typeof(exp) _rc;                       \
+        do {                                   \
+            _rc = (exp);                       \
+        } while (_rc == -1 && errno == EINTR); \
+        _rc;                                   \
+    })
 #endif
 
 // Some printf-like functions are implemented in terms of
@@ -77,11 +79,11 @@
 #include <process.h>
 #include <sys/stat.h>
 #include <utime.h>
-#include <winsock2.h>
 #include <windows.h>
+#include <winsock2.h>
 #include <ws2tcpip.h>
 
-#include <memory>   // unique_ptr
+#include <memory>  // unique_ptr
 #include <string>
 
 #include "fdevent.h"
@@ -95,25 +97,23 @@ static __inline__ bool adb_is_separator(char c) {
     return c == '\\' || c == '/';
 }
 
-typedef CRITICAL_SECTION          adb_mutex_t;
+typedef CRITICAL_SECTION adb_mutex_t;
 
-#define  ADB_MUTEX_DEFINE(x)     adb_mutex_t   x
+#define ADB_MUTEX_DEFINE(x) adb_mutex_t x
 
 /* declare all mutexes */
 /* For win32, adb_sysdeps_init() will do the mutex runtime initialization. */
-#define  ADB_MUTEX(x)   extern adb_mutex_t  x;
+#define ADB_MUTEX(x) extern adb_mutex_t x;
 #include "mutex_list.h"
 
-extern void  adb_sysdeps_init(void);
+extern void adb_sysdeps_init(void);
 
-static __inline__ void adb_mutex_lock( adb_mutex_t*  lock )
-{
-    EnterCriticalSection( lock );
+static __inline__ void adb_mutex_lock(adb_mutex_t* lock) {
+    EnterCriticalSection(lock);
 }
 
-static __inline__ void  adb_mutex_unlock( adb_mutex_t*  lock )
-{
-    LeaveCriticalSection( lock );
+static __inline__ void adb_mutex_unlock(adb_mutex_t* lock) {
+    LeaveCriticalSection(lock);
 }
 
 typedef void (*adb_thread_func_t)(void* arg);
@@ -189,73 +189,68 @@ static __inline__ bool adb_thread_equal(adb_thread_t lhs, adb_thread_t rhs) {
     return GetThreadId(lhs) == GetThreadId(rhs);
 }
 
-static __inline__  unsigned long adb_thread_id()
-{
+static __inline__ unsigned long adb_thread_id() {
     return GetCurrentThreadId();
 }
 
-static __inline__ void  close_on_exec(int  fd)
-{
+static __inline__ void close_on_exec(int fd) {
     /* nothing really */
 }
 
-#define  lstat    stat   /* no symlinks on Win32 */
+#define lstat stat /* no symlinks on Win32 */
 
-#define  S_ISLNK(m)   0   /* no symlinks on Win32 */
+#define S_ISLNK(m) 0 /* no symlinks on Win32 */
 
-extern int  adb_unlink(const char*  path);
-#undef  unlink
-#define unlink  ___xxx_unlink
+extern int adb_unlink(const char* path);
+#undef unlink
+#define unlink ___xxx_unlink
 
 extern int adb_mkdir(const std::string& path, int mode);
-#undef   mkdir
-#define  mkdir  ___xxx_mkdir
+#undef mkdir
+#define mkdir ___xxx_mkdir
 
 // See the comments for the !defined(_WIN32) versions of adb_*().
-extern int  adb_open(const char*  path, int  options);
-extern int  adb_creat(const char*  path, int  mode);
-extern int  adb_read(int  fd, void* buf, int len);
-extern int  adb_write(int  fd, const void*  buf, int  len);
-extern int  adb_lseek(int  fd, int  pos, int  where);
-extern int  adb_shutdown(int  fd);
-extern int  adb_close(int  fd);
+extern int adb_open(const char* path, int options);
+extern int adb_creat(const char* path, int mode);
+extern int adb_read(int fd, void* buf, int len);
+extern int adb_write(int fd, const void* buf, int len);
+extern int adb_lseek(int fd, int pos, int where);
+extern int adb_shutdown(int fd);
+extern int adb_close(int fd);
 
 // See the comments for the !defined(_WIN32) version of unix_close().
-static __inline__ int  unix_close(int fd)
-{
+static __inline__ int unix_close(int fd) {
     return close(fd);
 }
-#undef   close
-#define  close   ____xxx_close
+#undef close
+#define close ____xxx_close
 
 // Like unix_read(), but may return EINTR.
-extern int  unix_read_interruptible(int  fd, void*  buf, size_t  len);
+extern int unix_read_interruptible(int fd, void* buf, size_t len);
 
 // See the comments for the !defined(_WIN32) version of unix_read().
 static __inline__ int unix_read(int fd, void* buf, size_t len) {
     return TEMP_FAILURE_RETRY(unix_read_interruptible(fd, buf, len));
 }
 
-#undef   read
-#define  read  ___xxx_read
+#undef read
+#define read ___xxx_read
 
 // See the comments for the !defined(_WIN32) version of unix_write().
-static __inline__  int  unix_write(int  fd, const void*  buf, size_t  len)
-{
+static __inline__ int unix_write(int fd, const void* buf, size_t len) {
     return write(fd, buf, len);
 }
-#undef   write
-#define  write  ___xxx_write
+#undef write
+#define write ___xxx_write
 
 // See the comments for the !defined(_WIN32) version of adb_open_mode().
-static __inline__ int  adb_open_mode(const char* path, int options, int mode)
-{
+static __inline__ int adb_open_mode(const char* path, int options, int mode) {
     return adb_open(path, options);
 }
 
 // See the comments for the !defined(_WIN32) version of unix_open().
 extern int unix_open(const char* path, int options, ...);
-#define  open    ___xxx_unix_open
+#define open ___xxx_unix_open
 
 // Checks if |fd| corresponds to a console.
 // Standard Windows isatty() returns 1 for both console FDs and character
@@ -267,33 +262,31 @@ extern int unix_open(const char* path, int options, ...);
 // Returns 1 if |fd| is a console FD, 0 otherwise. The value of errno after
 // calling this function is unreliable and should not be used.
 int unix_isatty(int fd);
-#define  isatty  ___xxx_isatty
+#define isatty ___xxx_isatty
 
-static __inline__ void  adb_sleep_ms( int  mseconds )
-{
-    Sleep( mseconds );
+static __inline__ void adb_sleep_ms(int mseconds) {
+    Sleep(mseconds);
 }
 
 int network_loopback_client(int port, int type, std::string* error);
 int network_loopback_server(int port, int type, std::string* error);
 int network_inaddr_any_server(int port, int type, std::string* error);
-int network_connect(const std::string& host, int port, int type, int timeout,
-                    std::string* error);
+int network_connect(const std::string& host, int port, int type, int timeout, std::string* error);
 
-extern int  adb_socket_accept(int  serverfd, struct sockaddr*  addr, socklen_t  *addrlen);
+extern int adb_socket_accept(int serverfd, struct sockaddr* addr, socklen_t* addrlen);
 
-#undef   accept
-#define  accept  ___xxx_accept
+#undef accept
+#define accept ___xxx_accept
 
 // Returns the local port number of a bound socket, or -1 on failure.
 int adb_socket_get_local_port(int fd);
 
-extern int  adb_setsockopt(int  fd, int  level, int  optname, const void*  optval, socklen_t  optlen);
+extern int adb_setsockopt(int fd, int level, int optname, const void* optval, socklen_t optlen);
 
-#undef   setsockopt
-#define  setsockopt  ___xxx_setsockopt
+#undef setsockopt
+#define setsockopt ___xxx_setsockopt
 
-extern int  adb_socketpair( int  sv[2] );
+extern int adb_socketpair(int sv[2]);
 
 struct adb_pollfd {
     int fd;
@@ -319,8 +312,7 @@ static __inline__ int adb_is_absolute_host_path(const char* path) {
 // struct _stat32i64 (or some other remapping).
 struct adb_stat : public stat {};
 
-static_assert(sizeof(struct adb_stat) == sizeof(struct stat),
-    "structures should be the same");
+static_assert(sizeof(struct adb_stat) == sizeof(struct stat), "structures should be the same");
 
 extern int adb_stat(const char* f, struct adb_stat* s);
 
@@ -333,24 +325,23 @@ extern DIR* adb_opendir(const char* dirname);
 extern struct dirent* adb_readdir(DIR* dir);
 extern int adb_closedir(DIR* dir);
 
-extern int adb_utime(const char *, struct utimbuf *);
-extern int adb_chmod(const char *, int);
+extern int adb_utime(const char*, struct utimbuf*);
+extern int adb_chmod(const char*, int);
 
-extern int adb_vfprintf(FILE *stream, const char *format, va_list ap)
+extern int adb_vfprintf(FILE* stream, const char* format, va_list ap)
     __attribute__((__format__(ADB_FORMAT_ARCHETYPE, 2, 0)));
-extern int adb_vprintf(const char *format, va_list ap)
+extern int adb_vprintf(const char* format, va_list ap)
     __attribute__((__format__(ADB_FORMAT_ARCHETYPE, 1, 0)));
-extern int adb_fprintf(FILE *stream, const char *format, ...)
+extern int adb_fprintf(FILE* stream, const char* format, ...)
     __attribute__((__format__(ADB_FORMAT_ARCHETYPE, 2, 3)));
-extern int adb_printf(const char *format, ...)
+extern int adb_printf(const char* format, ...)
     __attribute__((__format__(ADB_FORMAT_ARCHETYPE, 1, 2)));
 
 extern int adb_fputs(const char* buf, FILE* stream);
 extern int adb_fputc(int ch, FILE* stream);
 extern int adb_putchar(int ch);
 extern int adb_puts(const char* buf);
-extern size_t adb_fwrite(const void* ptr, size_t size, size_t nmemb,
-                         FILE* stream);
+extern size_t adb_fwrite(const void* ptr, size_t size, size_t nmemb, FILE* stream);
 
 extern FILE* adb_fopen(const char* f, const char* m);
 
@@ -403,7 +394,7 @@ char* adb_strerror(int err);
 // Helper class to convert UTF-16 argv from wmain() to UTF-8 args that can be
 // passed to main().
 class NarrowArgs {
-public:
+  public:
     NarrowArgs(int argc, wchar_t** argv);
     ~NarrowArgs();
 
@@ -411,7 +402,7 @@ public:
         return narrow_args;
     }
 
-private:
+  private:
     char** narrow_args;
 };
 
@@ -436,7 +427,7 @@ inline HANDLE cast_int_to_handle(const int fd) {
 // http://stackoverflow.com/questions/14841396/stdunique-ptr-deleters-and-the-win32-api
 // https://visualstudiomagazine.com/articles/2013/09/01/get-a-handle-on-the-windows-api.aspx
 class handle_deleter {
-public:
+  public:
     typedef HANDLE pointer;
 
     void operator()(HANDLE h);
@@ -458,19 +449,16 @@ size_t ParseCompleteUTF8(const char* first, const char* last, std::vector<char>*
 #include <cutils/sockets.h>
 #include <cutils/threads.h>
 #include <fcntl.h>
-#include <poll.h>
-#include <signal.h>
-#include <sys/stat.h>
-#include <sys/wait.h>
-
-#include <pthread.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <stdarg.h>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include <poll.h>
+#include <pthread.h>
+#include <signal.h>
+#include <stdarg.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #include <string>
@@ -481,20 +469,28 @@ size_t ParseCompleteUTF8(const char* first, const char* last, std::vector<char>*
 // This reduces per-thread stack pressure, enabling smaller thread stacks.
 #define SCRATCH_ALLOC(size) \
     mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0)
-#define SCRATCH_FREE(ptr, size) \
-    munmap(ptr, size)
+#define SCRATCH_FREE(ptr, size) munmap(ptr, size)
 // RAII wrapper that frees the buffer on destruction.
 class ScratchBuf {
-public:
-    explicit ScratchBuf(size_t size) : size_(size),
-        ptr_(static_cast<char*>(mmap(NULL, size, PROT_READ | PROT_WRITE,
-                                     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0))) {}
-    ~ScratchBuf() { if (ptr_ && ptr_ != MAP_FAILED) munmap(ptr_, size_); }
-    char* get() { return ptr_; }
-    bool valid() const { return ptr_ != MAP_FAILED; }
+  public:
+    explicit ScratchBuf(size_t size)
+        : size_(size),
+          ptr_(static_cast<char*>(
+              mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0))) {
+    }
+    ~ScratchBuf() {
+        if (ptr_ && ptr_ != MAP_FAILED) munmap(ptr_, size_);
+    }
+    char* get() {
+        return ptr_;
+    }
+    bool valid() const {
+        return ptr_ != MAP_FAILED;
+    }
     ScratchBuf(const ScratchBuf&) = delete;
     ScratchBuf& operator=(const ScratchBuf&) = delete;
-private:
+
+  private:
     size_t size_;
     char* ptr_;
 };
@@ -512,30 +508,29 @@ static __inline__ bool adb_is_separator(char c) {
     return c == '/';
 }
 
-typedef  pthread_mutex_t          adb_mutex_t;
+typedef pthread_mutex_t adb_mutex_t;
 
-#define  ADB_MUTEX_INITIALIZER    PTHREAD_MUTEX_INITIALIZER
-#define  adb_mutex_init           pthread_mutex_init
-#define  adb_mutex_lock           pthread_mutex_lock
-#define  adb_mutex_unlock         pthread_mutex_unlock
-#define  adb_mutex_destroy        pthread_mutex_destroy
+#define ADB_MUTEX_INITIALIZER PTHREAD_MUTEX_INITIALIZER
+#define adb_mutex_init pthread_mutex_init
+#define adb_mutex_lock pthread_mutex_lock
+#define adb_mutex_unlock pthread_mutex_unlock
+#define adb_mutex_destroy pthread_mutex_destroy
 
-#define  ADB_MUTEX_DEFINE(m)      adb_mutex_t   m = PTHREAD_MUTEX_INITIALIZER
+#define ADB_MUTEX_DEFINE(m) adb_mutex_t m = PTHREAD_MUTEX_INITIALIZER
 
-#define  adb_cond_t               pthread_cond_t
-#define  adb_cond_init            pthread_cond_init
-#define  adb_cond_wait            pthread_cond_wait
-#define  adb_cond_broadcast       pthread_cond_broadcast
-#define  adb_cond_signal          pthread_cond_signal
-#define  adb_cond_destroy         pthread_cond_destroy
+#define adb_cond_t pthread_cond_t
+#define adb_cond_init pthread_cond_init
+#define adb_cond_wait pthread_cond_wait
+#define adb_cond_broadcast pthread_cond_broadcast
+#define adb_cond_signal pthread_cond_signal
+#define adb_cond_destroy pthread_cond_destroy
 
 /* declare all mutexes */
-#define  ADB_MUTEX(x)   extern adb_mutex_t  x;
+#define ADB_MUTEX(x) extern adb_mutex_t x;
 #include "mutex_list.h"
 
-static __inline__ void  close_on_exec(int  fd)
-{
-    fcntl( fd, F_SETFD, FD_CLOEXEC );
+static __inline__ void close_on_exec(int fd) {
+    fcntl(fd, F_SETFD, FD_CLOEXEC);
 }
 
 // Open a file and return a file descriptor that may be used with unix_read(),
@@ -547,30 +542,24 @@ static __inline__ void  close_on_exec(int  fd)
 // by unix_read(), unix_write(), unix_close()). Also, the C Runtime has
 // configurable CR/LF translation which defaults to text mode, but is settable
 // with _setmode().
-static __inline__ int  unix_open(const char*  path, int options,...)
-{
-    if ((options & O_CREAT) == 0)
-    {
-        return  TEMP_FAILURE_RETRY( open(path, options) );
-    }
-    else
-    {
-        int      mode;
-        va_list  args;
-        va_start( args, options );
-        mode = va_arg( args, int );
-        va_end( args );
-        return TEMP_FAILURE_RETRY( open( path, options, mode ) );
+static __inline__ int unix_open(const char* path, int options, ...) {
+    if ((options & O_CREAT) == 0) {
+        return TEMP_FAILURE_RETRY(open(path, options));
+    } else {
+        int mode;
+        va_list args;
+        va_start(args, options);
+        mode = va_arg(args, int);
+        va_end(args);
+        return TEMP_FAILURE_RETRY(open(path, options, mode));
     }
 }
 
 // Similar to the two-argument adb_open(), but takes a mode parameter for file
 // creation. See adb_open() for more info.
-static __inline__ int  adb_open_mode( const char*  pathname, int  options, int  mode )
-{
-    return TEMP_FAILURE_RETRY( open( pathname, options, mode ) );
+static __inline__ int adb_open_mode(const char* pathname, int options, int mode) {
+    return TEMP_FAILURE_RETRY(open(pathname, options, mode));
 }
-
 
 // Open a file and return a file descriptor that may be used with adb_read(),
 // adb_write(), adb_close(), but not unix_read(), unix_write(), unix_close().
@@ -579,27 +568,23 @@ static __inline__ int  adb_open_mode( const char*  pathname, int  options, int  
 // sysdeps_win32.cpp) uses Windows native file I/O and bypasses the C Runtime
 // and its CR/LF translation. The returned file descriptor should be used with
 // adb_read(), adb_write(), adb_close(), etc.
-static __inline__ int  adb_open( const char*  pathname, int  options )
-{
-    int  fd = TEMP_FAILURE_RETRY( open( pathname, options ) );
-    if (fd < 0)
-        return -1;
-    close_on_exec( fd );
+static __inline__ int adb_open(const char* pathname, int options) {
+    int fd = TEMP_FAILURE_RETRY(open(pathname, options));
+    if (fd < 0) return -1;
+    close_on_exec(fd);
     return fd;
 }
-#undef   open
-#define  open    ___xxx_open
+#undef open
+#define open ___xxx_open
 
-static __inline__ int  adb_shutdown(int fd)
-{
+static __inline__ int adb_shutdown(int fd) {
     return shutdown(fd, SHUT_RDWR);
 }
-static __inline__ int  adb_shutdown(int fd, int direction)
-{
+static __inline__ int adb_shutdown(int fd, int direction) {
     return shutdown(fd, direction);
 }
-#undef   shutdown
-#define  shutdown   ____xxx_shutdown
+#undef shutdown
+#define shutdown ____xxx_shutdown
 
 // Closes a file descriptor that came from adb_open() or adb_open_mode(), but
 // not designed to take a file descriptor from unix_open(). See the comments
@@ -607,13 +592,11 @@ static __inline__ int  adb_shutdown(int fd, int direction)
 __inline__ int adb_close(int fd) {
     return close(fd);
 }
-#undef   close
-#define  close   ____xxx_close
+#undef close
+#define close ____xxx_close
 
-
-static __inline__  int  adb_read(int  fd, void*  buf, size_t  len)
-{
-    return TEMP_FAILURE_RETRY( read( fd, buf, len ) );
+static __inline__ int adb_read(int fd, void* buf, size_t len) {
+    return TEMP_FAILURE_RETRY(read(fd, buf, len));
 }
 
 // Like unix_read(), but does not handle EINTR.
@@ -621,103 +604,93 @@ static __inline__ int unix_read_interruptible(int fd, void* buf, size_t len) {
     return read(fd, buf, len);
 }
 
-#undef   read
-#define  read  ___xxx_read
+#undef read
+#define read ___xxx_read
 
-static __inline__  int  adb_write(int  fd, const void*  buf, size_t  len)
-{
-    return TEMP_FAILURE_RETRY( write( fd, buf, len ) );
+static __inline__ int adb_write(int fd, const void* buf, size_t len) {
+    return TEMP_FAILURE_RETRY(write(fd, buf, len));
 }
-#undef   write
-#define  write  ___xxx_write
+#undef write
+#define write ___xxx_write
 
-static __inline__ int   adb_lseek(int  fd, int  pos, int  where)
-{
+static __inline__ int adb_lseek(int fd, int pos, int where) {
     return lseek(fd, pos, where);
 }
-#undef   lseek
-#define  lseek   ___xxx_lseek
+#undef lseek
+#define lseek ___xxx_lseek
 
-static __inline__  int    adb_unlink(const char*  path)
-{
-    return  unlink(path);
+static __inline__ int adb_unlink(const char* path) {
+    return unlink(path);
 }
-#undef  unlink
-#define unlink  ___xxx_unlink
+#undef unlink
+#define unlink ___xxx_unlink
 
-static __inline__  int  adb_creat(const char*  path, int  mode)
-{
-    int  fd = TEMP_FAILURE_RETRY( creat( path, mode ) );
+static __inline__ int adb_creat(const char* path, int mode) {
+    int fd = TEMP_FAILURE_RETRY(creat(path, mode));
 
-    if ( fd < 0 )
-        return -1;
+    if (fd < 0) return -1;
 
     close_on_exec(fd);
     return fd;
 }
-#undef   creat
-#define  creat  ___xxx_creat
+#undef creat
+#define creat ___xxx_creat
 
 static __inline__ int unix_isatty(int fd) {
     return isatty(fd);
 }
-#define  isatty  ___xxx_isatty
+#define isatty ___xxx_isatty
 
 // Helper for network_* functions.
 inline int _fd_set_error_str(int fd, std::string* error) {
-  if (fd == -1) {
-    *error = strerror(errno);
-  }
-  return fd;
+    if (fd == -1) {
+        *error = strerror(errno);
+    }
+    return fd;
 }
 
 inline int network_loopback_client(int port, int type, std::string* error) {
-  return _fd_set_error_str(socket_loopback_client(port, type), error);
+    return _fd_set_error_str(socket_loopback_client(port, type), error);
 }
 
 inline int network_loopback_server(int port, int type, std::string* error) {
-  return _fd_set_error_str(socket_loopback_server(port, type), error);
+    return _fd_set_error_str(socket_loopback_server(port, type), error);
 }
 
 inline int network_inaddr_any_server(int port, int type, std::string* error) {
-  return _fd_set_error_str(socket_inaddr_any_server(port, type), error);
+    return _fd_set_error_str(socket_inaddr_any_server(port, type), error);
 }
 
-inline int network_local_server(const char *name, int namespace_id, int type,
-                                std::string* error) {
-  return _fd_set_error_str(socket_local_server(name, namespace_id, type),
-                           error);
+inline int network_local_server(const char* name, int namespace_id, int type, std::string* error) {
+    return _fd_set_error_str(socket_local_server(name, namespace_id, type), error);
 }
 
-inline int network_connect(const std::string& host, int port, int type,
-                           int timeout, std::string* error) {
-  int getaddrinfo_error = 0;
-  int fd = socket_network_client_timeout(host.c_str(), port, type, timeout,
-                                         &getaddrinfo_error);
-  if (fd != -1) {
-    return fd;
-  }
-  if (getaddrinfo_error != 0) {
-    *error = gai_strerror(getaddrinfo_error);
-  } else {
-    *error = strerror(errno);
-  }
-  return -1;
+inline int network_connect(const std::string& host, int port, int type, int timeout,
+                           std::string* error) {
+    int getaddrinfo_error = 0;
+    int fd = socket_network_client_timeout(host.c_str(), port, type, timeout, &getaddrinfo_error);
+    if (fd != -1) {
+        return fd;
+    }
+    if (getaddrinfo_error != 0) {
+        *error = gai_strerror(getaddrinfo_error);
+    } else {
+        *error = strerror(errno);
+    }
+    return -1;
 }
 
-static __inline__ int  adb_socket_accept(int  serverfd, struct sockaddr*  addr, socklen_t  *addrlen)
-{
+static __inline__ int adb_socket_accept(int serverfd, struct sockaddr* addr, socklen_t* addrlen) {
     int fd;
 
-    fd = TEMP_FAILURE_RETRY( accept( serverfd, addr, addrlen ) );
-    if (fd >= 0)
-        close_on_exec(fd);
+    fd = TEMP_FAILURE_RETRY(accept(serverfd, addr, addrlen));
+    if (fd >= 0) close_on_exec(fd);
 
     return fd;
 }
 
-#undef   accept
-#define  accept  ___xxx_accept
+#undef accept
+#define accept ___xxx_accept
 
 inline int adb_socket_get_local_port(int fd) {
     return socket_get_local_port(fd);
@@ -731,9 +704,9 @@ inline int adb_socket_get_local_port(int fd) {
 // Windows implementations (in the ifdef above and in sysdeps_win32.cpp) call
 // into the C Runtime and its configurable CR/LF translation (which is settable
 // via _setmode()).
-#define  unix_read   adb_read
-#define  unix_write  adb_write
-#define  unix_close  adb_close
+#define unix_read adb_read
+#define unix_write adb_write
+#define unix_close adb_close
 
 // Win32 is limited to DWORDs for thread return values; limit the POSIX systems to this as well to
 // ensure compatibility.
@@ -797,10 +770,10 @@ static __inline__ int adb_thread_setname(const std::string& name) {
     (void)name;
     return 0;
 #else
-    const char *s = name.c_str();
+    const char* s = name.c_str();
 
     // pthread_setname_np fails rather than truncating long strings.
-    const int max_task_comm_len = 16; // including the null terminator
+    const int max_task_comm_len = 16;  // including the null terminator
     if (name.length() > (max_task_comm_len - 1)) {
         char buf[max_task_comm_len];
         strncpy(buf, name.c_str(), sizeof(buf) - 1);
@@ -808,38 +781,35 @@ static __inline__ int adb_thread_setname(const std::string& name) {
         s = buf;
     }
 
-    return pthread_setname_np(pthread_self(), s) ;
+    return pthread_setname_np(pthread_self(), s);
 #endif
 }
 
-static __inline__ int  adb_setsockopt( int  fd, int  level, int  optname, const void*  optval, socklen_t  optlen )
-{
-    return setsockopt( fd, level, optname, optval, optlen );
+static __inline__ int adb_setsockopt(int fd, int level, int optname, const void* optval,
+                                     socklen_t optlen) {
+    return setsockopt(fd, level, optname, optval, optlen);
 }
 
-#undef   setsockopt
-#define  setsockopt  ___xxx_setsockopt
+#undef setsockopt
+#define setsockopt ___xxx_setsockopt
 
-static __inline__ int  unix_socketpair( int  d, int  type, int  protocol, int sv[2] )
-{
-    return socketpair( d, type, protocol, sv );
+static __inline__ int unix_socketpair(int d, int type, int protocol, int sv[2]) {
+    return socketpair(d, type, protocol, sv);
 }
 
-static __inline__ int  adb_socketpair( int  sv[2] )
-{
-    int  rc;
+static __inline__ int adb_socketpair(int sv[2]) {
+    int rc;
 
-    rc = unix_socketpair( AF_UNIX, SOCK_STREAM, 0, sv );
-    if (rc < 0)
-        return -1;
+    rc = unix_socketpair(AF_UNIX, SOCK_STREAM, 0, sv);
+    if (rc < 0) return -1;
 
-    close_on_exec( sv[0] );
-    close_on_exec( sv[1] );
+    close_on_exec(sv[0]);
+    close_on_exec(sv[1]);
     return 0;
 }
 
-#undef   socketpair
-#define  socketpair   ___xxx_socketpair
+#undef socketpair
+#define socketpair ___xxx_socketpair
 
 // A bidirectional channel built from two uni-directional pipes.
 //   read_fd  : the end to read from (data arriving from the peer's write_fd)
@@ -853,8 +823,7 @@ struct adb_channel {
 
 // Create a uni-directional pipe. fds[0] is the read end, fds[1] the write end.
 static __inline__ int adb_pipe(int fds[2]) {
-    if (pipe(fds) < 0)
-        return -1;
+    if (pipe(fds) < 0) return -1;
     close_on_exec(fds[0]);
     close_on_exec(fds[1]);
     return 0;
@@ -866,9 +835,8 @@ static __inline__ int adb_pipe(int fds[2]) {
 // Data written to a->write_fd is readable from b->read_fd, and vice versa.
 // Returns 0 on success, -1 on error (all fds closed on error).
 static __inline__ int adb_channel_pair(adb_channel* a, adb_channel* b) {
-    int p1[2], p2[2];                 // p1: A->B, p2: B->A
-    if (pipe(p1) < 0)
-        return -1;
+    int p1[2], p2[2];  // p1: A->B, p2: B->A
+    if (pipe(p1) < 0) return -1;
     close_on_exec(p1[0]);
     close_on_exec(p1[1]);
     if (pipe(p2) < 0) {
@@ -878,8 +846,10 @@ static __inline__ int adb_channel_pair(adb_channel* a, adb_channel* b) {
     }
     close_on_exec(p2[0]);
     close_on_exec(p2[1]);
-    a->read_fd  = p2[0];  a->write_fd = p1[1];
-    b->read_fd  = p1[0];  b->write_fd = p2[1];
+    a->read_fd = p2[0];
+    a->write_fd = p1[1];
+    b->read_fd = p1[0];
+    b->write_fd = p2[1];
     return 0;
 }
 
@@ -897,8 +867,8 @@ static __inline__ void adb_channel_close(adb_channel* ch) {
     ch->read_fd = -1;
 }
 
-#undef   pipe
-#define  pipe   ___xxx_pipe
+#undef pipe
+#define pipe ___xxx_pipe
 
 typedef struct pollfd adb_pollfd;
 static __inline__ int adb_poll(adb_pollfd* fds, size_t nfds, int timeout) {
@@ -907,29 +877,25 @@ static __inline__ int adb_poll(adb_pollfd* fds, size_t nfds, int timeout) {
 
 #define poll ___xxx_poll
 
-static __inline__ void  adb_sleep_ms( int  mseconds )
-{
-    usleep( mseconds*1000 );
+static __inline__ void adb_sleep_ms(int mseconds) {
+    usleep(mseconds * 1000);
 }
 
-static __inline__ int  adb_mkdir(const std::string& path, int mode)
-{
+static __inline__ int adb_mkdir(const std::string& path, int mode) {
     return mkdir(path.c_str(), mode);
 }
 
-#undef   mkdir
-#define  mkdir  ___xxx_mkdir
+#undef mkdir
+#define mkdir ___xxx_mkdir
 
-static __inline__ void  adb_sysdeps_init(void)
-{
+static __inline__ void adb_sysdeps_init(void) {
 }
 
 static __inline__ int adb_is_absolute_host_path(const char* path) {
     return path[0] == '/';
 }
 
-static __inline__ unsigned long adb_thread_id()
-{
+static __inline__ unsigned long adb_thread_id() {
     return (unsigned long)gettid();
 }
 
